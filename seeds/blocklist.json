@@ -106,5 +106,21 @@
   "seeds": [
    "anz"
   ]
+ },
+ {
+  "ats": "greenhouse",
+  "token": "clear",
+  "why": "CLEAR (US), not Clearco (clear.co)",
+  "seeds": [
+   "ca"
+  ]
+ },
+ {
+  "ats": "ashby",
+  "token": "lightspeed",
+  "why": "US robotics namesake, not Lightspeed (lightspeedhq.com)",
+  "seeds": [
+   "ca"
+  ]
  }
 ]
