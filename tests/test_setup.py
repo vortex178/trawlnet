@@ -2,7 +2,9 @@
 import _home  # noqa: F401  (must be first: sets JOB_SEARCH_HOME)
 
 import contextlib
+import datetime as dt
 import io
+import json
 import os
 import re
 import shutil
@@ -274,6 +276,50 @@ class MainTest(TmpCase):
                            capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("!! config.yaml", p.stdout)
+
+
+
+class SeedWarningsTest(unittest.TestCase):
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.home, True)
+        (self.home / "data/seeds").mkdir(parents=True)
+
+    def companies(self, rows):
+        (self.home / "data/companies.json").write_text(json.dumps(rows))
+
+    def boards(self, seed, n, dead):
+        return [{"name": f"C{i}", "ats": "lever", "token": f"c{i}", "seed": seed, "gone_days": 3 if i < dead else 0}
+                for i in range(n)]
+
+    def test_no_companies_file(self):
+        self.assertEqual(js_setup.seed_warnings(self.home), [])
+
+    def test_dead_rate_needs_enough_boards_and_threshold(self):
+        today = dt.date(2026, 10, 1)
+        self.companies(self.boards("in", 10, 2) + self.boards("us", 9, 9) + self.boards("eu", 10, 1))
+        w = js_setup.seed_warnings(self.home, today)
+        self.assertEqual(len(w), 1)
+        self.assertIn("seed 'in': 2 of 10 boards are dead -> ./js discover refresh --seed in", w[0])
+
+    def test_age_from_manifest_and_own_file_and_custom_ignored(self):
+        self.companies(self.boards("india", 2, 0) + self.boards("remoteintech", 2, 0)
+                       + [{"name": "S", "ats": "custom", "token": "s", "seed": "old", "gone_days": 9}])
+        (self.home / "data/seeds/remoteintech.json").write_text("[]")   # own copy, fresh mtime
+        w = js_setup.seed_warnings(self.home, dt.date(2027, 6, 1))     # manifest says 2026-09-27: >180 days
+        self.assertEqual(len(w), 2)
+        self.assertIn("seed 'in': list dates from 2026-09-27", w[0])
+        self.assertIn("seed 'remoteintech': list dates from", w[1])
+        self.assertEqual(js_setup.seed_warnings(self.home, dt.date(2026, 10, 1)), [])
+
+    def test_dead_after_matches_engine(self):
+        import sources
+        self.assertEqual(js_setup.DEAD_AFTER, sources.DEAD_AFTER)
+
+    def test_doctor_lists_warnings(self):
+        (self.home / "config.yaml").write_text("country: in\n")
+        self.companies(self.boards("in", 10, 5))
+        self.assertIn("!! seed 'in': 5 of 10 boards are dead", capture(js_setup.doctor, self.home))
 
 
 if __name__ == "__main__":

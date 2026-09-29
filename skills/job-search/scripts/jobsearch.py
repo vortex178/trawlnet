@@ -668,6 +668,9 @@ def cmd_status(a, cfg):
     print(f"profiles: {', '.join(profiles) or 'none'} | companies: {len(companies)} "
           f"({sum(bool(c.get('active', True)) for c in companies)} active) | seen: {db.seen_count()}")
     print(describe(cfg))
+    from setup import seed_warnings
+    for w in seed_warnings(HOME):
+        print(f"warning: {w}")
 
 
 def main():

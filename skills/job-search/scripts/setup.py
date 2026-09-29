@@ -15,6 +15,8 @@ Nothing here creates accounts or handles credentials; keys are placed in .secret
 from __future__ import annotations
 
 import argparse
+import datetime as dt
+import json
 import os
 import re
 import shutil
@@ -200,6 +202,35 @@ def init(a) -> None:
 
 # ---------- doctor ----------
 
+SEED_STALE_DAYS = 180      # a seed list older than this is due for a refresh
+DEAD_RATE_WARN = 0.15      # share of a seed's boards dead (gone_days >= DEAD_AFTER) that triggers a warning
+DEAD_AFTER, DEAD_MIN = 3, 10  # DEAD_AFTER mirrors sources.DEAD_AFTER; DEAD_MIN = boards needed before judging
+
+
+def seed_warnings(home: Path, today=None) -> list:
+    """Staleness of the seeds behind data/companies.json: high dead-board rate, or an old list. Stdlib only."""
+    today = today or dt.date.today()
+    path = home / "data" / "companies.json"
+    if not path.exists():
+        return []
+    mf = PLUGIN / "seeds" / "manifest.json"
+    manifest = json.loads(mf.read_text()) if mf.exists() else {}
+    boards = {}
+    for c in json.loads(path.read_text()):
+        if c.get("ats") != "custom" and c.get("seed"):
+            boards.setdefault({"india": "in"}.get(c["seed"], c["seed"]), []).append(c)
+    out = []
+    for seed, cs in sorted(boards.items()):
+        dead = sum(c.get("gone_days", 0) >= DEAD_AFTER for c in cs)
+        if len(cs) >= DEAD_MIN and dead / len(cs) >= DEAD_RATE_WARN:
+            out.append(f"seed '{seed}': {dead} of {len(cs)} boards are dead -> ./js discover refresh --seed {seed}")
+        own = next((p for p in (home / "data/seeds" / f"{seed}{x}" for x in (".yaml", ".json")) if p.exists()), None)
+        made = dt.date.fromtimestamp(own.stat().st_mtime).isoformat() if own else manifest.get(seed)
+        if made and (today - dt.date.fromisoformat(made)).days > SEED_STALE_DAYS:
+            out.append(f"seed '{seed}': list dates from {made} -> ./js discover refresh --seed {seed}, then add new companies")
+    return out
+
+
 def doctor(home: Path) -> None:
     ok = lambda b: "ok " if b else "!! "  # noqa: E731
     py = home / ".venv" / "bin" / "python"
@@ -231,6 +262,8 @@ def doctor(home: Path) -> None:
         print(f"ok tracker {backend}")
     indeed = _read_yaml_scalar(text, "indeed_tool_prefix")
     print(f"{'ok ' if indeed else '-- '}indeed connector: {indeed or 'not configured (optional)'}")
+    for w in seed_warnings(home):
+        print(f"!! {w}")
     agents = [p.name for p in (home / ".claude/agents").glob("*.md")]
     print(f"{ok(len(agents) >= 3)}agents rendered: {', '.join(agents) or 'none (./js setup link)'}")
 

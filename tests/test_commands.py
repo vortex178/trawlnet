@@ -87,6 +87,8 @@ class ContextPlanStatusTest(unittest.TestCase):
         self.assertIn("country IN (INR)", out)
         self.assertIn("profiles: appsec, backend-sde", out)
         self.assertIn("tracker: csv", out)
+        with mock.patch("setup.seed_warnings", return_value=["seed 'in': list is old"]):
+            self.assertIn("warning: seed 'in': list is old", run(jobsearch.cmd_status, args()))
         buf = io.StringIO()
         with mock.patch.object(sys, "argv", ["jobsearch.py", "status"]), contextlib.redirect_stdout(buf):
             jobsearch.main()
