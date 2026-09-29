@@ -90,5 +90,13 @@
   "seeds": [
    "eu"
   ]
+ },
+ {
+  "ats": "greenhouse",
+  "token": "flip",
+  "why": "US namesake, not Flip (flip.id)",
+  "seeds": [
+   "sea"
+  ]
  }
 ]
