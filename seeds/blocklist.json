@@ -130,5 +130,13 @@
   "seeds": [
    "uae"
   ]
+ },
+ {
+  "ats": "greenhouse",
+  "token": "bold",
+  "why": "US namesake, not Bold (bold.co)",
+  "seeds": [
+   "latam"
+  ]
  }
 ]
