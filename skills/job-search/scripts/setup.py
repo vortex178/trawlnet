@@ -227,7 +227,7 @@ def seed_warnings(home: Path, today=None) -> list:
         own = next((p for p in (home / "data/seeds" / f"{seed}{x}" for x in (".yaml", ".json")) if p.exists()), None)
         made = dt.date.fromtimestamp(own.stat().st_mtime).isoformat() if own else manifest.get(seed)
         if made and (today - dt.date.fromisoformat(made)).days > SEED_STALE_DAYS:
-            out.append(f"seed '{seed}': list dates from {made} -> ./js discover refresh --seed {seed}, then add new companies")
+            out.append(f"seed '{seed}': list dates from {made} -> ./js discover refresh --seed {seed}, then ./js discover topup --seed {seed}")
     return out
 
 

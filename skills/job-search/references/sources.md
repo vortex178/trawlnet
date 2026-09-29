@@ -42,6 +42,12 @@ SmartRecruiters `jobs.smartrecruiters.com/<token>` — case-sensitive). Only `ac
   (`{tag: [[name, domain], ...]}`) take precedence. `./js discover run --seed <name>` finds boards (careers-page
   links first, then name probes that must match the company name / have open jobs), counts jobs eligible under your
   location rules, sets `active`, and writes leftovers to `data/seeds/unresolved-<seed>.json` with `hints`.
+- Staleness: `status`/`doctor` warn when a seed has many dead boards or is over 180 days old. `./js discover refresh
+  [--seed X]` re-checks known boards for free (counts, dead boards go inactive, unresolved retried). To add companies to a
+  YAML seed, `./js discover topup --seed X` prints its groups and every known name; propose 40-60 NEW, real companies
+  that hire engineers in that region (verified domains, no repeats) as JSONL `{"name","domain","tag"}` to the path it
+  names (about 2-4k tokens), then `./js discover topup --seed X --import <file>` drops duplicates and dead domains and
+  writes the user's copy of the seed (it overrides the plugin's from then on); finish with `discover run --seed X`.
 - False matches → add to `data/seeds/blocklist.json` ({ats, token, why}; merged with the plugin's `seeds/blocklist.json`)
   and remove from companies.json.
 - `company-researcher` (Haiku) can research unresolved companies; its output is merged only via

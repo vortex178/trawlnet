@@ -51,7 +51,8 @@ Follow `references/profiles.md`. Always get the user's review; salary floors and
   (values from the scorer's TRACK line).
 
 ### discover (company seed lists; occasional)
-`./js discover run --seed <in|remoteintech|your seed>`, `./js discover custom --seed <seed>` (careers pages without a
+`./js discover run [--seed <name,...>]`, `./js discover refresh` (re-check boards, free), `./js discover topup` (add companies
+to a stale list), `./js discover custom --seed <seed>` (careers pages without a
 supported ATS), `./js discover summary`. Details and blocklist: `references/sources.md` → Discovery.
 
 ### status

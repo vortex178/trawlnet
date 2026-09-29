@@ -7,6 +7,7 @@ rules. Zero LLM tokens. Seeds: the data folder's data/seeds/<name>.(yaml|json) (
                                               count relevant jobs, merge into data/companies.json,
                                               write unresolved to data/seeds/unresolved-<seed>.json
   discover.py refresh [--seed a,b]            re-check known boards (counts, dead -> inactive), retry unresolved
+  discover.py topup [--seed X] [--import f]   list what to add to a YAML seed, then import the model's proposals (free checks)
   discover.py custom [--seed a,b]             add unresolved companies as `custom` careers-page entries
   discover.py verify <jsonl>                  verify agent findings {"name","ats","token"} and merge
   discover.py summary                         counts by seed/ATS/active
@@ -16,11 +17,13 @@ from __future__ import annotations
 import glob
 import json
 import re
+import socket
 import sys
 import urllib.error
 import urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import yaml
 
@@ -398,6 +401,82 @@ def cmd_refresh(seed: str):
     cmd_run(seed, None)
 
 
+def _resolves(domain: str) -> bool:
+    for d in (domain, "www." + domain):
+        try:
+            socket.getaddrinfo(d, 443)
+            return True
+        except OSError:
+            pass
+    return False
+
+
+def _yaml_seed(seed: str):
+    for d in (SEEDS, SEEDS_DIR):
+        if (d / f"{seed}.yaml").exists():
+            return d / f"{seed}.yaml"
+    sys.exit(f"topup needs a YAML seed ({seed}.yaml in {rel(SEEDS)} or {SEEDS_DIR}); JSON seeds are regenerated instead")
+
+
+def cmd_topup_prepare(seed: str):
+    """Print what the model needs to propose new companies: the seed's groups and the names already listed."""
+    src = _yaml_seed(seed)
+    rows = yaml.safe_load(src.read_text()) or {}
+    known = sorted({n for xs in rows.values() for n, _ in xs} | {c["name"] for c in load_companies()})
+    out = SEEDS / f"topup-{seed}.jsonl"
+    print(f"topup {seed}: {sum(len(v) for v in rows.values())} companies in groups "
+          f"{', '.join(f'{k} ({len(v)})' for k, v in rows.items())}\nalready known: {'; '.join(known)}\n"
+          f"Propose NEW companies (real, hiring engineers in this region; verified domains) as JSONL "
+          f'{{"name","domain","tag"}} in {rel(out)}, then: ./js discover topup --seed {seed} --import {rel(out)}')
+
+
+def cmd_topup_import(seed: str, path: str):
+    """Add proposed companies to the user's copy of a YAML seed: duplicates and dead domains are dropped (free)."""
+    src = _yaml_seed(seed)
+    text = src.read_text()
+    groups = list(yaml.safe_load(text) or {})
+    known = {norm_company(n) for xs in (yaml.safe_load(text) or {}).values() for n, _ in xs}
+    known |= {norm_company(c["name"]) for c in load_companies()}
+    lines, added, dup, bad = text.splitlines(), [], 0, []
+    for raw in Path(path).read_text().splitlines():
+        if not raw.strip():
+            continue
+        try:
+            r = json.loads(raw)
+        except ValueError:
+            r = None
+        if not isinstance(r, dict):
+            bad.append(raw[:30])
+            continue
+        name = str(r.get("name") or "").strip()
+        dom = re.sub(r"^https?://", "", str(r.get("domain") or "").strip().lower()).removeprefix("www.").split("/")[0]
+        if not name or not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", dom) or not _resolves(dom):
+            bad.append(name or "?")
+            continue
+        if norm_company(name) in known:
+            dup += 1
+            continue
+        known.add(norm_company(name))
+        tag = r.get("tag") if r.get("tag") in groups else (groups[0] if groups else f"{seed}-product")
+        entry = f"  - [{json.dumps(name) if re.search(r'[]\[,:#]', name) else name}, {dom}]"
+        if tag in groups:
+            head = lines.index(f"{tag}:")
+            end = head
+            while end + 1 < len(lines) and lines[end + 1].startswith("  - ["):
+                end += 1
+            lines.insert(end + 1, entry)
+        else:
+            groups.append(tag)
+            lines += [f"{tag}:", entry]
+        added.append(name)
+    dest = SEEDS / f"{seed}.yaml"
+    SEEDS.mkdir(parents=True, exist_ok=True)
+    dest.write_text("\n".join(lines) + "\n")
+    print(f"topup {seed}: +{len(added)} added, {dup} already listed, {len(bad)} rejected (bad line/domain: "
+          f"{', '.join(bad[:8]) or '-'}) -> {rel(dest)} (your copy now overrides the plugin's {seed}.yaml)"
+          + (f"\nnext: ./js discover run --seed {seed}" if added else ""))
+
+
 def selected_seeds(arg=None) -> list:
     """Seeds to process: --seed a,b, else config `seeds:` (list), else the country pack's default_seed."""
     if arg:
@@ -429,6 +508,15 @@ if __name__ == "__main__":
     elif a[0] == "refresh":
         for seed in selected_seeds(a[a.index("--seed") + 1] if "--seed" in a else None):
             cmd_refresh(seed)
+    elif a[0] == "topup":
+        seeds = selected_seeds(a[a.index("--seed") + 1] if "--seed" in a else None)
+        if "--import" in a:
+            if len(seeds) != 1:
+                sys.exit("topup --import takes exactly one seed")
+            cmd_topup_import(seeds[0], a[a.index("--import") + 1])
+        else:
+            for seed in seeds:
+                cmd_topup_prepare(seed)
     elif a[0] == "custom":
         for seed in selected_seeds(a[a.index("--seed") + 1] if "--seed" in a else None):
             cmd_custom(seed)

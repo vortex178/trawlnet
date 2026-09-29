@@ -351,6 +351,68 @@ class CommandsTest(TmpCase):
         self.assertTrue(by["Pinned"]["active"])
         self.assertNotIn("active", by["Other"])
 
+    def topup_seed(self):
+        (self.plugin_seeds / "z.yaml").write_text(
+            "# header comment\nz-product:\n  - [Acme, acme.com]\n  - [Beta, beta.io]\nsecurity:\n  - [Guard, guard.com]\n")
+        self.companies.write_text(json.dumps([{"name": "Known Co", "ats": "lever", "token": "k"}]))
+
+    def test_topup_prepare_lists_groups_and_known_names(self):
+        self.topup_seed()
+        out = capture(discover.cmd_topup_prepare, "z")
+        self.assertIn("topup z: 3 companies in groups z-product (2), security (1)", out)
+        self.assertIn("already known: Acme; Beta; Guard; Known Co", out)
+        self.assertIn("./js discover topup --seed z --import", out)
+        with self.assertRaises(SystemExit):
+            discover.cmd_topup_prepare("nope")
+
+    def test_topup_import_filters_and_inserts_into_groups(self):
+        self.topup_seed()
+        f = self.dir / "props.jsonl"
+        f.write_text("\n".join([
+            json.dumps({"name": "Newco", "domain": "https://www.newco.com/careers", "tag": "z-product"}),
+            json.dumps({"name": "SecNew", "domain": "secnew.io", "tag": "security"}),
+            json.dumps({"name": "Fresh, Inc", "domain": "fresh.dev", "tag": "brand-new-group"}),
+            json.dumps({"name": "No Tag", "domain": "notag.com"}),
+            json.dumps({"name": "acme inc", "domain": "acme.com"}),        # duplicate of Acme
+            json.dumps({"name": "Known Co", "domain": "known.com"}),      # already in companies.json
+            json.dumps({"name": "Dead", "domain": "dead.invalid.zz"}),     # does not resolve
+            json.dumps({"name": "Bad", "domain": "not a domain"}), "{oops", "", "[1]"]))
+        with mock.patch.object(discover, "_resolves", lambda d: "dead" not in d):
+            out = capture(discover.cmd_topup_import, "z", str(f))
+        self.assertIn("+4 added, 2 already listed, 4 rejected", out)
+        self.assertIn("next: ./js discover run --seed z", out)
+        text = (self.seeds / "z.yaml").read_text()
+        self.assertEqual(text, "# header comment\nz-product:\n  - [Acme, acme.com]\n  - [Beta, beta.io]\n"
+                               "  - [Newco, newco.com]\n  - [\"Fresh, Inc\", fresh.dev]\n  - [No Tag, notag.com]\n"
+                               "security:\n  - [Guard, guard.com]\n  - [SecNew, secnew.io]\n")  # unknown tag -> first group
+        self.assertEqual(len(discover.load_seed("z")), 7)   # user copy overrides the plugin's seed
+
+    def test_topup_import_nothing_new_and_json_seed_refused(self):
+        self.topup_seed()
+        f = self.dir / "none.jsonl"
+        f.write_text("")
+        out = capture(discover.cmd_topup_import, "z", str(f))
+        self.assertIn("+0 added", out)
+        self.assertNotIn("next:", out)
+        (self.plugin_seeds / "j.json").write_text("[]")
+        with self.assertRaisesRegex(SystemExit, "topup needs a YAML seed"):
+            discover.cmd_topup_prepare("j")
+
+    def test_topup_import_into_empty_seed_creates_default_group(self):
+        (self.seeds / "e.yaml").write_text("# empty\n")
+        f = self.dir / "p.jsonl"
+        f.write_text(json.dumps({"name": "Solo", "domain": "solo.com"}) + "\n")
+        with mock.patch.object(discover, "_resolves", return_value=True):
+            capture(discover.cmd_topup_import, "e", str(f))
+        self.assertEqual((self.seeds / "e.yaml").read_text(), "# empty\ne-product:\n  - [Solo, solo.com]\n")
+
+    def test_resolves(self):
+        with mock.patch.object(discover.socket, "getaddrinfo", side_effect=[OSError, None]) as g:
+            self.assertTrue(discover._resolves("a.com"))     # falls back to www.
+            self.assertEqual(g.call_count, 2)
+        with mock.patch.object(discover.socket, "getaddrinfo", side_effect=OSError):
+            self.assertFalse(discover._resolves("a.com"))
+
     def test_verify_agent_findings(self):
         f = self.dir / "found.jsonl"
         f.write_text("\n".join(json.dumps(r) for r in [
@@ -448,6 +510,15 @@ class CliTest(unittest.TestCase):
         out = self.run_cli("refresh", "--seed", "a").stdout
         self.assertIn("a refresh: 0 boards checked", out)
         self.assertIn("a: 0 candidates", out)
+
+    def test_topup_cli(self):
+        (self.home / "data/seeds/t.yaml").write_text("t-product:\n  - [Acme, acme.com]\n")
+        self.assertIn("topup t: 1 companies", self.run_cli("topup", "--seed", "t").stdout)
+        p = self.run_cli("topup", "--seed", "t,u", "--import", "x.jsonl")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("exactly one seed", p.stderr)
+        (self.home / "x.jsonl").write_text("")
+        self.assertIn("+0 added", self.run_cli("topup", "--seed", "t", "--import", "x.jsonl").stdout)
 
     def test_usage_and_missing_seed(self):
         for argv in ((), ("bogus",)):
