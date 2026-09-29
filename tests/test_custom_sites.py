@@ -1,7 +1,10 @@
 """Custom career pages, description enrichment/lazy fetching, and fetch_all orchestration (network mocked)."""
 import _home  # noqa: F401  (must be first: sets JOB_SEARCH_HOME)
 
+import datetime as dt
+import io
 import unittest
+import urllib.error
 from unittest import mock
 
 import sources
@@ -226,6 +229,54 @@ class FetchAllTest(unittest.TestCase):
         b.enabled = False
         self.run_all({"ats": True}, b)
         self.assertNotIn("firecrawl", [c[0] for c in self.calls])
+
+
+class BoardHealthTest(unittest.TestCase):
+    """fetch_all records ATS board outcomes: only 404/410 count, once per day, reset by a success."""
+
+    def run_day(self, day, co, exc=None):
+        err = exc or None
+
+        def fetch(c):
+            if err:
+                raise err
+            return []
+        today = mock.Mock(wraps=dt.date)
+        today.today.return_value = dt.date(2026, 9, day)
+        with mock.patch.dict(sources.ATS_FETCHERS, {"lever": fetch}), mock.patch.object(sources.dt, "date", today):
+            return sources.fetch_all({"sources": {"ats": True}}, [co])
+
+    def http(self, code):
+        return urllib.error.HTTPError("u", code, "x", {}, io.BytesIO())
+
+    def test_gone_three_days_is_dead(self):
+        co = {"name": "A", "ats": "lever", "token": "a"}
+        for day in (1, 2):
+            self.run_day(day, co, self.http(404))
+            self.assertFalse(sources.is_dead(co))
+        self.run_day(2, co, self.http(404))          # same day again: not counted twice
+        self.assertEqual(co["gone_days"], 2)
+        self.run_day(3, co, self.http(410))
+        self.assertTrue(sources.is_dead(co))
+
+    def test_transient_errors_do_not_count(self):
+        co = {"name": "A", "ats": "lever", "token": "a"}
+        for code in (429, 500, 503):
+            self.run_day(1, co, self.http(code))
+        self.run_day(2, co, TimeoutError("slow"))
+        self.assertEqual(co.get("gone_days", 0), 0)
+
+    def test_success_resets_and_stamps(self):
+        co = {"name": "A", "ats": "lever", "token": "a", "gone_days": 2, "last_gone": "2026-09-02"}
+        self.run_day(5, co)
+        self.assertEqual((co["gone_days"], co["last_ok"]), (0, "2026-09-05"))
+        self.assertNotIn("last_gone", co)
+
+    def test_non_board_sources_untouched(self):
+        co = {"name": "Site", "ats": "custom", "careers_url": "https://x.test/careers"}
+        with mock.patch.object(sources, "fetch_custom_free", side_effect=self.http(404)):
+            sources.fetch_all({"sources": {"ats": True}}, [co])
+        self.assertNotIn("gone_days", co)
 
 
 if __name__ == "__main__":

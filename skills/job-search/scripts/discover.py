@@ -25,7 +25,7 @@ import yaml
 
 from common import COMPANIES_PATH, DATA, SEEDS_DIR, UA, age_days, load_config, norm_company, rel, today
 from jobsearch import location_check
-from sources import ATS_FETCHERS, _cfg, _post_json
+from sources import ATS_FETCHERS, _cfg, _post_json, is_dead
 
 
 def _undocumented_ok() -> bool:
@@ -383,6 +383,7 @@ def selected_seeds(arg=None) -> list:
 def cmd_summary():
     cur = load_companies()
     print(f"companies: {len(cur)} | active: {sum(bool(c.get('active')) for c in cur)} | "
+          f"dead boards: {sum(is_dead(c) for c in cur)} | "
           f"by ats: {dict(Counter(c['ats'] for c in cur))} | by seed: {dict(Counter(c.get('seed') for c in cur))}")
 
 

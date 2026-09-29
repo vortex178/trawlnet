@@ -379,6 +379,9 @@ class CommandsTest(TmpCase):
         out = capture(discover.cmd_summary)
         self.assertIn("companies: 2 | active: 1", out)
         self.assertIn("'lever': 1", out)
+        self.assertIn("dead boards: 0", out)
+        self.companies.write_text(json.dumps([{"name": "A", "ats": "lever", "token": "a", "gone_days": 3}]))
+        self.assertIn("dead boards: 1", capture(discover.cmd_summary))
 
 
 class CliTest(unittest.TestCase):

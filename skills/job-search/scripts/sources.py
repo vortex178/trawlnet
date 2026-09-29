@@ -646,6 +646,24 @@ ATS_FETCHERS = {"greenhouse": fetch_greenhouse, "lever": fetch_lever, "ashby": f
                 "workday": fetch_workday, "darwinbox": fetch_darwinbox}
 
 
+GONE_CODES = (404, 410)  # "board does not exist"; timeouts, 429 and 5xx are transient and never count
+DEAD_AFTER = 3           # consecutive days with a gone response before a board is considered dead
+
+
+def record_outcome(c: dict, exc=None) -> None:
+    """Track ATS board health on the company entry: `last_ok`, and `gone_days` = consecutive days of 404/410."""
+    today = dt.date.today().isoformat()
+    if exc is None:
+        c["last_ok"], c["gone_days"] = today, 0
+        c.pop("last_gone", None)
+    elif getattr(exc, "code", None) in GONE_CODES and c.get("last_gone") != today:
+        c["gone_days"], c["last_gone"] = c.get("gone_days", 0) + 1, today
+
+
+def is_dead(c: dict) -> bool:
+    return c.get("gone_days", 0) >= DEAD_AFTER
+
+
 def fetch_all(cfg: dict, companies: list, budget=None) -> tuple:
     """Fetch WWR feeds + ATS boards in parallel. Returns (records, per-source counts, errors)."""
     tasks = []
@@ -672,14 +690,19 @@ def fetch_all(cfg: dict, companies: list, budget=None) -> tuple:
     tasks += [(f"custom:{c['name']}", fetch_custom_free, c) for c in customs]
     records, counts, errors = [], {}, []
     with ThreadPoolExecutor(max_workers=8) as ex:
-        futs = {ex.submit(fn, arg): label for label, fn, arg in tasks}
-        for fut, label in futs.items():
+        futs = {ex.submit(fn, arg): (label, arg) for label, fn, arg in tasks}
+        for fut, (label, arg) in futs.items():
+            board = arg if label.split(":")[0] in ATS_FETCHERS else None
             try:
                 rows = fut.result()
                 records += rows
                 counts[label] = len(rows)
+                if board is not None:
+                    record_outcome(board)
             except Exception as e:  # network / schema errors are reported, not fatal
                 errors.append(f"{label}: {type(e).__name__}: {str(e)[:120]}")
+                if board is not None:
+                    record_outcome(board, e)
     # custom sites that yielded nothing for free -> Firecrawl, least recently scraped first, keeping a reserve
     if budget is not None and budget.enabled:
         keep = int((cfg.get("firecrawl") or {}).get("shortlist_reserve", 5))
