@@ -5,7 +5,7 @@ filters them with deterministic rules (location, remote eligibility, seniority, 
 score a capped shortlist against your profiles with cited evidence, and appends good matches to a tracker
 (CSV by default, or Google Sheets). It also suggests resume tailoring for a job without inventing experience.
 
-It casts a wide net: seed lists of ~750 companies resolve to hundreds of public ATS boards across eight platforms, alongside
+It casts a wide net: seed lists of ~1,600 companies across ten lists resolve to hundreds of public ATS boards across eight platforms, alongside
 job feeds and aggregators.
 
 It never applies to jobs, logs in to job sites, or handles your passwords.
@@ -45,6 +45,8 @@ Requirements: Claude Code, Python ≥ 3.9 (or [`uv`](https://docs.astral.sh/uv/)
    Adzuna (`adzuna.json`), Firecrawl (`firecrawl.key`, for JS-rendered career pages), Google Sheets service account
    (see `skills/job-search/references/tracker-setup.md`). The optional Indeed connector is the claude.ai connector.
 5. `/job-search:discover` — find which ATS boards companies from a seed list use (`seeds/`), or add your own.
+   Seeds: `in`, `us`, `ca`, `uk` (UK & Ireland), `eu`, `sea` (Singapore & SEA), `anz`, `uae`, `latam`, and the global
+   `remoteintech`; pick any mix with `seeds: [...]` in `config.yaml` (default: the country pack's `default_seed`).
 6. `/job-search:run --dry` (fetch + filter only; no tokens beyond the command, no paid credits), then `/job-search:run`.
 
 Other commands: `/job-search:tailor <url or pasted JD>`, `/job-search:track <url>`, `/job-search:status`.
