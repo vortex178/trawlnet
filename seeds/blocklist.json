@@ -122,5 +122,13 @@
   "seeds": [
    "ca"
   ]
+ },
+ {
+  "ats": "ashby",
+  "token": "rain",
+  "why": "Rain (US fintech), not Rain (rain.com, Bahrain)",
+  "seeds": [
+   "uae"
+  ]
  }
 ]
