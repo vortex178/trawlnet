@@ -48,7 +48,7 @@ class CommonEdgesTest(TmpCase):
             self.assertEqual(common._find_home(), root)
 
     def test_missing_pack_and_config_exit_with_help(self):
-        with self.assertRaisesRegex(SystemExit, "No country pack 'zz.yaml'.*Available: in, us"):
+        with self.assertRaisesRegex(SystemExit, r"No country pack 'zz.yaml'.*Available: (\w+, )*in, (\w+, )*us"):
             common.load_pack("ZZ")
         with mock.patch.object(common, "HOME", self.tmp()), self.assertRaisesRegex(SystemExit, "No config.yaml"):
             common.load_config()
