@@ -1,0 +1,11 @@
+[
+ {"name": "Northwind Payments", "ats": "greenhouse", "token": "northwindpayments", "tags": ["example"], "seed": "example", "active": true},
+ {"name": "Contoso Cloud", "ats": "lever", "token": "contosocloud", "tags": ["example"], "seed": "example", "active": true},
+ {"name": "Fabrikam Security", "ats": "ashby", "token": "fabrikam", "tags": ["example", "security"], "seed": "example", "active": true},
+ {"name": "Tailspin Labs", "ats": "workable", "token": "tailspin-labs", "tags": ["example"], "seed": "example", "active": true},
+ {"name": "Wingtip Toys", "ats": "smartrecruiters", "token": "WingtipToys", "tags": ["example"], "seed": "example", "active": true},
+ {"name": "Litware Security", "ats": "workday", "token": "litware", "host": "litware.wd3.myworkdayjobs.com", "site": "Careers", "tags": ["example", "security"], "seed": "example", "active": true},
+ {"name": "Proseware", "ats": "darwinbox", "token": "proseware", "host": "proseware.darwinbox.in", "site": "main", "tags": ["example"], "seed": "example", "active": true},
+ {"name": "Adventure Works", "ats": "custom", "token": "adventure-works", "careers_url": "https://careers.adventure-works.example/openings", "tags": ["example"], "seed": "example", "active": true},
+ {"name": "Woodgrove Bank", "ats": "greenhouse", "token": "woodgrove", "tags": ["example"], "seed": "example", "active": false, "manual": true, "note": "manual + inactive: discovery won't re-enable it"}
+]

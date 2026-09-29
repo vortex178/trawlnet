@@ -1,0 +1,25 @@
+# Job search — data folder
+
+Personal job-search data for the `job-search` Claude Code plugin. Open Claude Code sessions in this folder.
+Say "run job search" → the `job-search` skill. CLI: `./js <cmd>` (`./js status` first, `./js setup doctor` if in doubt).
+
+## Rules (details in `data/profiles/preferences.yaml`, `config.yaml`)
+- Country {{COUNTRY}}; on-site/hybrid in: {{CITIES}}; remote bias: {{REMOTE_BIAS}}.
+- Salary floor {{SALARY}}; max required experience {{MAX_YOE}} yrs; forbidden hours {{FORBIDDEN_SHIFT}} ({{TIMEZONE}}).
+- Tracker: {{TRACKER}}.
+
+## Working style
+- Tokens first, paid credits second: prefer scripts/dry runs; check keys/state before any credit-spending test.
+- Spot-check agent/parser output before publishing; report costs per run.
+- Tracker Status column and row deletions belong to the user — never edit rows without asking.
+- Ask before scheduling or large changes.
+
+## Status & next steps (update when a decision changes)
+- Set up; add profiles, then run.
+
+## Known issues
+- (none yet)
+
+## Recent runs (auto-updated by `./js publish` — do not edit by hand)
+<!-- AUTO:RUNLOG:START -->
+<!-- AUTO:RUNLOG:END -->

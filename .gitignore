@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+# never commit personal data (a data folder must live outside this repo)
+.secrets/
+/data/
+# (examples/data-folder is fictional and committed on purpose)
+config.yaml
+!templates/config.yaml
+!examples/data-folder/config.yaml
+tracker.csv
+!examples/data-folder/tracker.csv
+.coverage
+.coverage.*

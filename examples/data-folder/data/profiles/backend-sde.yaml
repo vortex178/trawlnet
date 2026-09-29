@@ -1,0 +1,20 @@
+id: backend-sde
+label: Backend Software Engineer
+family: backend / general software engineering (JVM)
+active: true
+resume: data/resumes/backend-sde.md
+years_experience: 4
+target_titles: [backend engineer, backend developer, senior backend engineer, java developer, software engineer ii]
+title_include: [software engineer, software developer, sde, backend, back end, java, kotlin, platform engineer]
+title_related: [engineer, developer, programmer]
+title_exclude: [frontend, front end, android, ios, qa, test, sales, support, data scientist, machine learning, devops,
+                sre, embedded, php, net, designer, intern]
+seniority_allowed: [mid, senior]
+search_queries: [backend engineer, java developer]
+core_skills: [java, kotlin, spring boot, kafka, postgresql, redis, aws, kubernetes]
+secondary_skills: [grpc, docker, helm]
+must_have: []
+deal_breakers: []
+summary: >-
+  Backend engineer (4 yrs) building payment and ledger services in Java/Kotlin on AWS; Kafka pipelines,
+  PostgreSQL/Redis performance work, Kubernetes migration.

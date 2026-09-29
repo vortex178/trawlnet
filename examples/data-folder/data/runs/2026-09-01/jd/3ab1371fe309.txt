@@ -1,0 +1,3 @@
+Backend Engineer (Remote - India) — Contoso Cloud — Remote - India
+
+Fictional posting for the job-search plugin tests. Build Java/Kotlin services with Spring Boot, Kafka and PostgreSQL on AWS. 3+ years of experience. Hybrid, 2 days a week in office.

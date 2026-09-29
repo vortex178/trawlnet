@@ -1,0 +1,11 @@
+{
+  "name": "trawlnet",
+  "owner": {"name": "vortex178"},
+  "plugins": [
+    {
+      "name": "job-search",
+      "source": "./",
+      "description": "Daily job search with evidence-backed scoring against your resumes and a tracker."
+    }
+  ]
+}

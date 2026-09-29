@@ -1,0 +1,37 @@
+[
+ {
+  "ats": "lever",
+  "token": "getwingapp",
+  "why": "linked from remote.com careers page but belongs to another company"
+ },
+ {
+  "ats": "greenhouse",
+  "token": "slice",
+  "why": "US namesake, not Slice (sliceit.com)"
+ },
+ {
+  "ats": "greenhouse",
+  "token": "porter",
+  "why": "US namesake, not Porter (porter.in)"
+ },
+ {
+  "ats": "smartrecruiters",
+  "token": "Uber",
+  "why": "dormant namesake account; Uber uses its own careers site"
+ },
+ {
+  "ats": "lever",
+  "token": "jobgether",
+  "why": "job aggregator linked from remote.com, not Remote's own hiring"
+ },
+ {
+  "ats": "lever",
+  "token": "porter",
+  "why": "namesake with no India jobs, not Porter (porter.in)"
+ },
+ {
+  "ats": "ashby",
+  "token": "build",
+  "why": "matched to Grou.ps by name probe; unrelated board"
+ }
+]

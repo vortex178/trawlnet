@@ -1,0 +1,7 @@
+# Personal job-search data. Keep this folder private; never commit it to a public repo.
+.secrets/
+.venv/
+data/
+tracker.csv
+*.migrated
+.DS_Store

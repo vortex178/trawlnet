@@ -1,0 +1,29 @@
+# Merged fact store across resumes (profile add/update keeps ids stable). Fictional persona.
+facts:
+  - {id: F001, resumes: [backend-sde, appsec], kind: experience, org: Northwind Traders, role: Software Engineer II,
+     dates: 2023-01 – present, text: "Built a Kafka-based settlement pipeline in Java (Spring Boot) processing 3M transactions/day.",
+     skills: [kafka, java, spring boot]}
+  - {id: F002, resumes: [backend-sde], kind: experience, org: Northwind Traders, role: Software Engineer II,
+     dates: 2023-01 – present, text: "Cut p99 latency of the ledger API from 420 ms to 140 ms by adding Redis caching and query tuning in PostgreSQL.",
+     skills: [redis, postgresql]}
+  - {id: F003, resumes: [backend-sde], kind: experience, org: Northwind Traders, role: Software Engineer II,
+     dates: 2023-01 – present, text: "Led the migration of 12 services from EC2 to Kubernetes (EKS) with Helm charts.",
+     skills: [kubernetes, aws, helm]}
+  - {id: F004, resumes: [appsec], kind: experience, org: Northwind Traders, role: Software Engineer II (Security Champion),
+     dates: 2023-01 – present, text: "Ran threat models for 9 payment services (STRIDE) and tracked 60+ findings to closure.",
+     skills: [threat modelling]}
+  - {id: F005, resumes: [appsec], kind: experience, org: Northwind Traders, role: Software Engineer II (Security Champion),
+     dates: 2023-01 – present, text: "Added Semgrep and OWASP ZAP stages to the CI pipeline; blocked 25 high-severity issues before release.",
+     skills: [semgrep, zap, ci/cd]}
+  - {id: F006, resumes: [appsec], kind: experience, org: Northwind Traders, role: Software Engineer II (Security Champion),
+     dates: 2023-01 – present, text: "Performed secure code reviews of Java/Kotlin services against the OWASP ASVS.",
+     skills: [secure code review, owasp]}
+  - {id: F007, resumes: [backend-sde, appsec], kind: experience, org: Tailwind Traders, role: Software Engineer,
+     dates: 2021-07 – 2022-12, text: "Developed REST APIs in Kotlin for merchant onboarding; 40+ endpoints with OpenAPI docs.",
+     skills: [kotlin, rest]}
+  - {id: F008, resumes: [appsec], kind: experience, org: Tailwind Traders, role: Software Engineer,
+     dates: 2021-07 – 2022-12, text: "Implemented OAuth 2.0 scopes for partner access.", skills: [oauth]}
+  - {id: F009, resumes: [backend-sde], kind: experience, org: Northwind Traders, role: Software Engineer II,
+     dates: 2023-01 – present, text: "Mentored 2 junior engineers; ran the team's design reviews.", skills: [mentoring]}
+  - {id: F010, resumes: [backend-sde, appsec], kind: education, org: Example Institute of Technology,
+     dates: 2021, text: "B.Tech, Computer Science.", skills: []}

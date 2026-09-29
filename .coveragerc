@@ -1,0 +1,10 @@
+# Usage (from the repo root; COVERAGE_FILE must be absolute so pipeline subprocesses report to the same place):
+#   COVERAGE_FILE=$PWD/.coverage coverage run -m unittest discover -s tests && coverage combine && coverage report
+[run]
+include = */skills/job-search/scripts/*
+parallel = True
+patch = subprocess
+
+[report]
+show_missing = True
+skip_empty = True

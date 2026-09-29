@@ -1,0 +1,27 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install PyYAML
+      - run: python -m unittest discover -s tests -v
+      - name: coverage (fails under 95%)
+        if: matrix.python == '3.12'
+        run: |
+          pip install coverage
+          COVERAGE_FILE=$PWD/.coverage coverage run -m unittest discover -s tests
+          coverage combine
+          coverage report --fail-under=95
+      - run: python tests/pii_scan.py
+      - name: setup smoke test (stdlib only)
+        run: |
+          python skills/job-search/scripts/setup.py init --home "$RUNNER_TEMP/home" --country US --cities austin --no-env
+          test -f "$RUNNER_TEMP/home/config.yaml" && test -f "$RUNNER_TEMP/home/.claude/agents/job-scorer.md"

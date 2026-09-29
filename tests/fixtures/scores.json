@@ -1,0 +1,169 @@
+[
+ {
+  "match": [
+   "Northwind Payments",
+   "Senior Backend Engineer"
+  ],
+  "profile": "backend-sde",
+  "score": 84,
+  "verdict": "apply",
+  "gates": {
+   "salary": "unknown",
+   "experience": "pass",
+   "location": "pass",
+   "shift": "pass"
+  },
+  "strengths": [
+   "Kafka pipeline at 3M tx/day",
+   "Spring Boot + PostgreSQL"
+  ],
+  "gaps": [
+   "no gRPC mention"
+  ],
+  "flags": []
+ },
+ {
+  "match": [
+   "Contoso Cloud",
+   "Backend Engineer (Remote - India)"
+  ],
+  "profile": "backend-sde",
+  "score": 78,
+  "verdict": "apply",
+  "gates": {
+   "salary": "unknown",
+   "experience": "pass",
+   "location": "pass",
+   "shift": "pass"
+  },
+  "strengths": [
+   "Java/Kotlin services on AWS"
+  ],
+  "gaps": [],
+  "flags": []
+ },
+ {
+  "match": [
+   "Contoso Cloud",
+   "Platform Engineer"
+  ],
+  "profile": "backend-sde",
+  "score": 58,
+  "verdict": "consider",
+  "gates": {
+   "salary": "pass",
+   "experience": "pass",
+   "location": "pass",
+   "shift": "pass"
+  },
+  "strengths": [
+   "Kubernetes migration"
+  ],
+  "gaps": [
+   "platform tooling depth"
+  ],
+  "flags": []
+ },
+ {
+  "match": [
+   "Northwind Payments",
+   "Java Backend Engineer"
+  ],
+  "profile": "backend-sde",
+  "score": 72,
+  "verdict": "apply",
+  "gates": {
+   "salary": "unknown",
+   "experience": "pass",
+   "location": "pass",
+   "shift": "pass"
+  },
+  "strengths": [
+   "same stack as current role"
+  ],
+  "gaps": [],
+  "flags": []
+ },
+ {
+  "match": [
+   "Tailspin Labs",
+   "Integration Engineer"
+  ],
+  "profile": "backend-sde",
+  "score": 61,
+  "verdict": "consider",
+  "gates": {
+   "salary": "unknown",
+   "experience": "pass",
+   "location": "pass",
+   "shift": "fail"
+  },
+  "strengths": [
+   "REST API work"
+  ],
+  "gaps": [
+   "night on-call rotation (02:00-06:00 IST)"
+  ],
+  "flags": []
+ },
+ {
+  "match": [
+   "Adventure Works",
+   "Senior Software Engineer"
+  ],
+  "profile": "backend-sde",
+  "score": 0,
+  "verdict": "skip",
+  "gates": {},
+  "strengths": [],
+  "gaps": [],
+  "flags": [
+   "vague-jd"
+  ]
+ },
+ {
+  "match": [
+   "Fabrikam Security",
+   "AppSec Engineer"
+  ],
+  "profile": "appsec",
+  "score": 81,
+  "verdict": "apply",
+  "gates": {
+   "salary": "unknown",
+   "experience": "pass",
+   "location": "pass",
+   "shift": "pass"
+  },
+  "strengths": [
+   "threat modelling for payment services",
+   "Semgrep/ZAP in CI"
+  ],
+  "gaps": [
+   "no cloud security"
+  ],
+  "flags": []
+ },
+ {
+  "match": [
+   "Foundit",
+   "Application Security Engineer"
+  ],
+  "profile": "appsec",
+  "score": 70,
+  "verdict": "consider",
+  "gates": {
+   "salary": "unknown",
+   "experience": "pass",
+   "location": "pass",
+   "shift": "pass"
+  },
+  "strengths": [
+   "secure code review"
+  ],
+  "gaps": [
+   "employer not named"
+  ],
+  "flags": []
+ }
+]

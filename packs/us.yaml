@@ -1,0 +1,33 @@
+# Country pack: United States (format validation pack; city list is a starting point, extend as needed).
+country: US
+name: United States
+country_aliases: [usa, us, u s]
+currency: USD
+fx_to_local: {EUR: 1.08, GBP: 1.27, INR: 0.012, CAD: 0.73}
+timezone_default: America/New_York
+
+cities:
+  new york: [nyc, new york city, brooklyn, manhattan, jersey city]
+  san francisco bay area: [san francisco, sf, bay area, oakland, san jose, palo alto, mountain view, sunnyvale]
+  seattle: [bellevue, redmond]
+  austin: []
+  boston: [cambridge ma]
+  chicago: []
+  los angeles: [la, santa monica]
+  denver: [boulder]
+
+country_places: [united states, usa, us, new york, san francisco, seattle, austin, boston, chicago, los angeles,
+                 denver, atlanta, dallas, houston, miami, washington, portland, san diego, phoenix, minneapolis]
+
+remote_positive: [us, usa, u s, united states, america, americas, north america]
+remote_reject: [india, apac, asia, emea, europe, european, eu, uk, united kingdom, london, germany, france, spain,
+                portugal, netherlands, ireland, poland, romania, latam, latin america, south america, brazil,
+                mexico, argentina, colombia, australia, new zealand, japan, singapore, philippines, israel,
+                canada only, ist, cet]
+
+indeed_country: US
+adzuna:
+  country: us
+  details_domain: www.adzuna.com
+  city_spellings: {}
+default_seed: remoteintech

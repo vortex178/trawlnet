@@ -1,0 +1,16 @@
+# User-supplied preferences (never inferred). Used by the filter (salary) and the scorer (all gates).
+# Salary: `min_annual` in INR, or `min_lpa` (lakhs per annum, INR). Per-profile entries override `default`.
+salary:
+  default: {min_lpa: 30}
+  appsec: {min_lpa: 32}
+
+work:
+  # reject if the JD's MINIMUM required experience exceeds this (null = no limit)
+  max_required_yoe: 6
+  # strong | some | none — ranking bonus and scoring weight for remote roles
+  remote_bias: some
+  # fully on-site / 5-days-in-office roles fail; hybrid is OK
+  reject_strict_wfo: false
+  timezone: Asia/Kolkata
+  # e.g. "00:00-06:00": shifts overlapping this window (your time zone) fail; "" = no restriction
+  forbidden_shift: "00:00-06:00"

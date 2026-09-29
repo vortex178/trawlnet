@@ -1,0 +1,78 @@
+# Job search configuration. Edit freely; scripts re-read it on every run.
+# Country specifics (cities catalog, remote rules, currency, FX) come from the plugin's packs/<country>.yaml;
+# override any pack key under `pack_overrides:`.
+
+country: {{COUNTRY}}
+
+# On-site/hybrid jobs are accepted only if their location matches one of these (key or alias; see the pack's `cities`)
+accept_cities:
+{{CITIES}}
+accept_any_country_location: true  # a location naming only the country (no city) counts as a match
+remote_scope: country_eligible     # country_eligible (remote must be open to your country) | global_ok
+
+# Indeed connector (optional): the claude.ai Indeed connector's tool-name prefix, e.g. mcp__<server-id>.
+# Setup fills it from the session's tool list; `./js setup link` renders it into the agents.
+connectors:
+  indeed_tool_prefix: "{{INDEED_PREFIX}}"
+search_locations:                # Indeed query locations (each query x location = one connector call)
+{{SEARCH_LOCATIONS}}
+max_indeed_queries: 12           # hard cap on connector calls per run
+
+models: {fetcher_model: haiku, scorer_model: sonnet, researcher_model: haiku}
+
+max_age_days: 14                 # freshness limit for postings
+max_age_days_by_source: {hn: 31} # HN posts land in the first days of a monthly thread
+keep_undated: true               # keep postings with no date (flagged)
+retention_days_raw: 7            # raw fetch files + Firecrawl page cache kept this long (gzipped after publish)
+
+shortlist_size: 15               # jobs whose full description gets read and scored per run (~100k tokens)
+scorer_batch_size: 12            # jobs per scorer agent; scorers run one after another
+min_score_for_tracker: 60        # only matches at/above this go to the tracker
+stale_after_days: 7              # older postings keep their slot but lose score at publish (not rejected)
+stale_penalty_per_day: 1
+stale_penalty_max: 10
+aggregator_companies: [foundit, monster, naukri, shine, timesjobs, iimjobs, hirist, instahyre, apna, workindia]
+shortlist_source_caps: {alignerr: 3}   # max shortlist slots per run for these sources
+
+sources:
+  indeed: {{INDEED_ON}}          # needs connectors.indeed_tool_prefix
+  ziprecruiter: false            # connector covers US/Canada only
+  wwr: true                      # We Work Remotely RSS (jobs must also be applyable on a free source)
+  remoteok: true                 # remoteok.com/api (credit Remote OK, link to the original listing)
+  hn: true                       # latest "Ask HN: Who is hiring?" thread (Algolia API)
+  ats: true                      # public Greenhouse/Lever/Ashby/Workable/SmartRecruiters boards (data/companies.json)
+  undocumented_ats: false        # opt-in: Workday/Darwinbox career-site endpoints (undocumented, may change)
+  alignerr: false                # opt-in: Alignerr AI-training CONTRACT roles (undocumented endpoint)
+  adzuna: false                  # needs a free key in .secrets/adzuna.json {app_id, app_key}
+
+adzuna_locations: [{{ADZUNA_LOCATIONS}}]
+adzuna_searches: []              # empty = profile search queries
+adzuna_remote_query: true        # also '<term> remote' across the country
+adzuna_max_requests: 12
+adzuna_detail_delay_seconds: 3
+
+alignerr_searches: [software engineer, backend]
+
+wwr_require_free_apply: true
+wwr_feeds:                       # We Work Remotely RSS paths (without .rss)
+  - remote-jobs
+  - categories/remote-back-end-programming-jobs
+  - categories/remote-full-stack-programming-jobs
+
+firecrawl:                       # paid fallback for JS-rendered career pages (key in .secrets/firecrawl.key)
+  enabled: false
+  base_credits_per_run: 20
+  dynamic_budget: true           # per run = max(base, (remaining - reserve) / days left in billing period)
+  reserve_credits: 50
+  shortlist_reserve: 5           # of each run's budget, kept for shortlisted job descriptions
+  api_key_file: .secrets/firecrawl.key
+
+tracker:
+  backend: {{TRACKER}}           # csv (tracker.csv here) | gsheets (see references/tracker-setup.md)
+  columns: [company, role, score, url, profile, status]   # also: location, posted, source, date_added
+  csv_path: tracker.csv
+  gsheets:
+    sheet_id: ""
+    sheet_url: ""
+    sheet_tab_gid: null          # set by `./js tracker init`
+    service_account_key: .secrets/service-account.json

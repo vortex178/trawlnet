@@ -1,0 +1,7 @@
+# Core
+PyYAML>=6.0
+# Google Sheets tracker backend (optional)
+google-auth>=2.20
+requests>=2.31
+# PDF resume text extraction (profile add)
+pypdf>=4.0

@@ -1,0 +1,228 @@
+"""Tracker backends. Append-only: rows are added, never edited; the Status column is left for the user.
+
+Usage (./js tracker <cmd>, alias ./js sheets <cmd>):
+  check          verify the backend (file / key, access, tab, header)
+  init           create the header (CSV) or name + format the tab (Google Sheets)
+  flush          push queued rows (data/pending_tracker_rows.jsonl)
+
+Config `tracker.backend`: csv (default; a file in the data folder, opens in any spreadsheet app) | gsheets
+(service account; setup steps in references/tracker-setup.md). `tracker.columns` picks and orders fields from
+FIELDS. Rows produced while a backend is unavailable stay queued and are pushed on the next publish/flush.
+"""
+from __future__ import annotations
+
+import csv
+import json
+import sys
+import urllib.parse
+
+from common import HOME, PENDING_ROWS_PATH, append_jsonl, load_config, read_jsonl, rel, save_config_value, write_jsonl
+
+FIELDS = {"company": "Company", "role": "Role", "score": "Match Score", "url": "Apply URL", "profile": "Profile",
+          "location": "Location", "posted": "Posted", "source": "Source", "date_added": "Date Added",
+          "status": "Status"}
+DEFAULT_COLUMNS = ["company", "role", "score", "url", "profile", "status"]
+API = "https://sheets.googleapis.com/v4/spreadsheets"
+
+
+class Unavailable(Exception):
+    """Backend can't be reached now (missing key, no access); rows stay queued."""
+
+
+def tracker_cfg(cfg: dict) -> dict:
+    t = dict(cfg.get("tracker") or {})
+    if not t and cfg.get("sheet"):  # pre-plugin config layout
+        t = {"backend": "gsheets", "gsheets": cfg["sheet"]}
+    t.setdefault("backend", "csv")
+    return t
+
+
+def columns(cfg: dict) -> list:
+    cols = tracker_cfg(cfg).get("columns") or DEFAULT_COLUMNS
+    bad = [c for c in cols if c not in FIELDS]
+    if bad:
+        sys.exit(f"tracker.columns: unknown field(s) {bad}; choose from {list(FIELDS)}")
+    return cols
+
+
+def header(cfg: dict) -> list:
+    return [FIELDS[c] for c in columns(cfg)]
+
+
+def _row(d, cols: list) -> list:
+    if isinstance(d, list):  # legacy queued row (fixed 6 columns)
+        d = dict(zip(DEFAULT_COLUMNS, d))
+    return ["" if d.get(c) is None else d.get(c) for c in cols]
+
+
+# ---------- CSV ----------
+
+class CsvBackend:
+    def __init__(self, cfg: dict):
+        self.cfg = cfg
+        self.path = HOME / (tracker_cfg(cfg).get("csv_path") or "tracker.csv")
+
+    def init(self):
+        if not self.path.exists() or not self.path.stat().st_size:
+            with self.path.open("w", newline="") as f:
+                csv.writer(f).writerow(header(self.cfg))
+        print(f"tracker file: {rel(self.path)}")
+
+    def append(self, rows: list) -> str:
+        if not self.path.exists() or not self.path.stat().st_size:
+            with self.path.open("w", newline="") as f:
+                csv.writer(f).writerow(header(self.cfg))
+        with self.path.open("a", newline="") as f:
+            csv.writer(f).writerows(_row(r, columns(self.cfg)) for r in rows)
+        return f"appended to {rel(self.path)}"
+
+    def check(self):
+        if not self.path.exists():
+            print(f"{rel(self.path)} not created yet (created on first publish or `init`)")
+            return
+        with self.path.open(newline="") as f:
+            rows = list(csv.reader(f))
+        print(f"file: {rel(self.path)}, rows incl. header: {len(rows)}")
+        print("header OK" if rows and rows[0] == header(self.cfg) else f"HEADER MISMATCH: {rows[0] if rows else []}")
+
+    def describe(self) -> str:
+        return f"tracker: csv {rel(self.path)}"
+
+
+# ---------- Google Sheets (service account) ----------
+
+class SheetsBackend:
+    def __init__(self, cfg: dict):
+        self.cfg = cfg
+        self.g = tracker_cfg(cfg).get("gsheets") or {}
+        self.key = HOME / (self.g.get("service_account_key") or ".secrets/service-account.json")
+        self.last_col = chr(ord("A") + len(columns(cfg)) - 1)
+
+    def _session(self):
+        if not self.g.get("sheet_id"):
+            raise Unavailable("tracker.gsheets.sheet_id is not set")
+        if not self.key.exists():
+            raise Unavailable(f"service-account key not found at {rel(self.key)}")
+        from google.auth.transport.requests import AuthorizedSession
+        from google.oauth2 import service_account
+        creds = service_account.Credentials.from_service_account_file(
+            str(self.key), scopes=["https://www.googleapis.com/auth/spreadsheets"])
+        return AuthorizedSession(creds), creds.service_account_email
+
+    def _tab(self, sess) -> dict:
+        r = sess.get(f"{API}/{self.g['sheet_id']}", params={"fields": "properties.title,sheets.properties"})
+        if r.status_code == 403:
+            err = r.json().get("error", {})
+            if any(d.get("reason") == "SERVICE_DISABLED" for d in err.get("details", [])):
+                raise Unavailable("403: Google Sheets API is not enabled in the service account's Cloud project")
+            raise Unavailable(f"403: share the sheet with {sess.credentials.service_account_email} as Editor")
+        r.raise_for_status()
+        sheets = [s["properties"] for s in r.json()["sheets"]]
+        gid = self.g.get("sheet_tab_gid")
+        tab = next((s for s in sheets if s["sheetId"] == gid), None) if gid is not None else None
+        return tab or sheets[0]
+
+    @staticmethod
+    def _range(tab: dict, a1: str) -> str:
+        return urllib.parse.quote(f"'{tab['title']}'!{a1}", safe="")
+
+    def append(self, rows: list) -> str:
+        sess, _ = self._session()
+        tab = self._tab(sess)
+        r = sess.post(f"{API}/{self.g['sheet_id']}/values/{self._range(tab, f'A:{self.last_col}')}:append",
+                      params={"valueInputOption": "RAW", "insertDataOption": "INSERT_ROWS"},
+                      json={"values": [_row(x, columns(self.cfg)) for x in rows]})
+        if not r.ok:
+            raise Unavailable(f"append failed: {r.status_code} {r.text[:200]}")
+        return f"appended to tab '{tab['title']}'"
+
+    def check(self):
+        sess, email = self._session()
+        tab = self._tab(sess)
+        sid = self.g["sheet_id"]
+        r = sess.get(f"{API}/{sid}/values/{self._range(tab, f'A1:{self.last_col}1')}")
+        r.raise_for_status()
+        got = (r.json().get("values") or [[]])[0]
+        n = sess.get(f"{API}/{sid}/values/{self._range(tab, 'A:A')}").json().get("values", [])
+        print(f"service account: {email}")
+        print(f"tab: '{tab['title']}' (gid {tab['sheetId']}), rows incl. header: {len(n)}")
+        print("header OK" if got == header(self.cfg) else f"HEADER MISMATCH: {got}")
+
+    def init(self):
+        sess, email = self._session()
+        tab = self._tab(sess)
+        sid, gid = self.g["sheet_id"], tab["sheetId"]
+        reqs = [
+            {"updateSheetProperties": {"properties": {"sheetId": gid, "title": "Tracker",
+                                                      "gridProperties": {"frozenRowCount": 1}},
+                                       "fields": "title,gridProperties.frozenRowCount"}},
+            {"repeatCell": {"range": {"sheetId": gid, "startRowIndex": 0, "endRowIndex": 1},
+                            "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
+                            "fields": "userEnteredFormat.textFormat.bold"}},
+        ]
+        sess.post(f"{API}/{sid}:batchUpdate", json={"requests": reqs}).raise_for_status()
+        tab["title"] = "Tracker"
+        a1 = f"A1:{self.last_col}1"
+        r = sess.get(f"{API}/{sid}/values/{self._range(tab, a1)}")
+        if not (r.json().get("values") or [[]])[0]:
+            sess.put(f"{API}/{sid}/values/{self._range(tab, a1)}", params={"valueInputOption": "RAW"},
+                     json={"values": [header(self.cfg)]}).raise_for_status()
+        save_config_value("tracker.gsheets.sheet_tab_gid", gid)
+        print(f"initialized tab 'Tracker' (gid {gid}) as {email}")
+
+    def describe(self) -> str:
+        return (f"tracker: google sheet {self.g.get('sheet_url') or self.g.get('sheet_id') or '(not set)'} | "
+                f"key {'present' if self.key.exists() else 'MISSING (' + rel(self.key) + ')'}")
+
+
+BACKENDS = {"csv": CsvBackend, "gsheets": SheetsBackend}
+
+
+def backend(cfg: dict):
+    name = tracker_cfg(cfg)["backend"]
+    if name not in BACKENDS:
+        sys.exit(f"tracker.backend '{name}' unknown; choose from {list(BACKENDS)}")
+    return BACKENDS[name](cfg)
+
+
+def queue_rows(rows: list) -> None:
+    append_jsonl(PENDING_ROWS_PATH, [{"row": r} for r in rows])
+
+
+def flush(cfg=None) -> tuple:
+    """Push queued rows. Returns (pushed, still_pending, message)."""
+    cfg = cfg or load_config()
+    legacy = PENDING_ROWS_PATH.with_name("pending_sheet_rows.jsonl")  # pre-plugin queue file
+    if legacy.exists():
+        append_jsonl(PENDING_ROWS_PATH, read_jsonl(legacy))
+        legacy.unlink()
+    pending = [p["row"] for p in read_jsonl(PENDING_ROWS_PATH)]
+    if not pending:
+        return 0, 0, "nothing queued"
+    try:
+        msg = backend(cfg).append(pending)
+    except Unavailable as e:
+        return 0, len(pending), str(e)
+    write_jsonl(PENDING_ROWS_PATH, [])
+    return len(pending), 0, msg
+
+
+def describe(cfg: dict) -> str:
+    return f"{backend(cfg).describe()} | queued rows: {len(read_jsonl(PENDING_ROWS_PATH))}"
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "check"
+    cfg = load_config()
+    try:
+        if cmd == "check":
+            backend(cfg).check()
+            print(describe(cfg))
+        elif cmd == "init":
+            backend(cfg).init()
+        elif cmd == "flush":
+            print(json.dumps(dict(zip(("pushed", "pending", "msg"), flush(cfg)))))
+        else:
+            sys.exit(__doc__)
+    except Unavailable as e:
+        sys.exit(f"tracker unavailable: {e}")

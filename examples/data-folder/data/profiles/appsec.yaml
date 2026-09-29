@@ -1,0 +1,18 @@
+id: appsec
+label: Application Security Engineer
+family: application / product security engineering, secure code review, threat modelling
+active: true
+resume: data/resumes/appsec.md
+years_experience: 4
+target_titles: [application security engineer, product security engineer, appsec engineer, security engineer]
+title_include: [application security, appsec, product security, devsecops, secure code, penetration tester]
+title_related: [engineer, analyst, consultant, specialist]
+title_exclude: [frontend, front end, soc, siem, sales, presales, grc, compliance, network security, physical security, intern]
+seniority_allowed: [mid, senior]
+search_queries: [application security engineer]
+core_skills: [threat modelling, secure code review, owasp, semgrep, zap, burp suite, oauth]
+secondary_skills: [java, kotlin, ci/cd]
+must_have: []
+deal_breakers: [on-call 24x7]
+summary: >-
+  Security-focused engineer (4 yrs; 2 in AppSec) — threat modelling, secure code review, SAST/DAST in CI for payment APIs.
