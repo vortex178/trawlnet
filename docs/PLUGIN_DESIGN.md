@@ -38,7 +38,7 @@ It contains no personal data and is intended to live in the public repo.
   commands/                         setup, run, profile, tailor, track, discover, status
   templates/                        config, preferences, CLAUDE.md, tracker header
   packs/                            country packs (in.yaml, us.yaml, …)
-  seeds/                            per-country company seed lists + shared blocklist
+  seeds/                            per-country company seed lists + shared blocklist (entries may carry "seeds": [...] to apply only to those seeds)
   examples/                         fictional generated data (see §10)
   tests/                            parser/pipeline fixtures (shared with examples/)
   CLAUDE.md                         contributor guide (NOT a user's personal CLAUDE.md)

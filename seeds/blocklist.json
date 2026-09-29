@@ -2,17 +2,26 @@
  {
   "ats": "lever",
   "token": "getwingapp",
-  "why": "linked from remote.com careers page but belongs to another company"
+  "why": "linked from remote.com careers page but belongs to another company",
+  "seeds": [
+   "remoteintech"
+  ]
  },
  {
   "ats": "greenhouse",
   "token": "slice",
-  "why": "US namesake, not Slice (sliceit.com)"
+  "why": "US namesake, not Slice (sliceit.com)",
+  "seeds": [
+   "in"
+  ]
  },
  {
   "ats": "greenhouse",
   "token": "porter",
-  "why": "US namesake, not Porter (porter.in)"
+  "why": "US namesake, not Porter (porter.in)",
+  "seeds": [
+   "in"
+  ]
  },
  {
   "ats": "smartrecruiters",
@@ -27,11 +36,17 @@
  {
   "ats": "lever",
   "token": "porter",
-  "why": "namesake with no India jobs, not Porter (porter.in)"
+  "why": "namesake with no India jobs, not Porter (porter.in)",
+  "seeds": [
+   "in"
+  ]
  },
  {
   "ats": "ashby",
   "token": "build",
-  "why": "matched to Grou.ps by name probe; unrelated board"
+  "why": "matched to Grou.ps by name probe; unrelated board",
+  "seeds": [
+   "remoteintech"
+  ]
  }
 ]

@@ -83,6 +83,17 @@ class HttpHelpersTest(unittest.TestCase):
         with mock.patch.object(discover, "SEEDS_DIR", plugin), mock.patch.object(discover, "SEEDS", user):
             self.assertEqual(discover._blocked(), {("lever", "bad"), ("ashby", "worse")})
 
+    def test_blocklist_seed_scoping(self):
+        plugin, user = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, plugin, True)
+        self.addCleanup(shutil.rmtree, user, True)
+        (plugin / "blocklist.json").write_text(
+            '[{"ats": "lever", "token": "Bad"}, {"ats": "greenhouse", "token": "slice", "seeds": ["in"]}]')
+        with mock.patch.object(discover, "SEEDS_DIR", plugin), mock.patch.object(discover, "SEEDS", user):
+            self.assertEqual(discover._blocked(), {("lever", "bad")})
+            self.assertEqual(discover._blocked("us"), {("lever", "bad")})
+            self.assertEqual(discover._blocked("in"), {("lever", "bad"), ("greenhouse", "slice")})
+
     def test_undocumented_gate(self):
         with mock.patch.object(discover, "_cfg", return_value={"sources": {"undocumented_ats": True}}):
             self.assertTrue(discover._undocumented_ok())

@@ -87,16 +87,18 @@ def name_match(a: str, b: str) -> bool:
     return bool(x and y) and (x in y or y in x)
 
 
-def _blocked():
-    """Known false matches: the plugin's shared blocklist plus the user's data/seeds/blocklist.json."""
+def _blocked(seed=None):
+    """Known false matches: the plugin's shared blocklist plus the user's data/seeds/blocklist.json.
+    An entry with a "seeds" list applies only when that seed is being run; without one it is global."""
     out = set()
     for p in (SEEDS_DIR / "blocklist.json", SEEDS / "blocklist.json"):
         if p.exists():
-            out |= {(b["ats"], b["token"].lower()) for b in json.loads(p.read_text())}
+            out |= {(b["ats"], b["token"].lower()) for b in json.loads(p.read_text())
+                    if not b.get("seeds") or seed in b["seeds"]}
     return out
 
 
-BLOCKED = _blocked()
+BLOCKED = _blocked()  # global entries; cmd_run/cmd_verify widen it to the seed being processed
 
 
 def _post(url: str, body: dict, headers=None):
@@ -279,7 +281,9 @@ def cmd_import_remoteintech(repo: str):
 
 
 def cmd_run(seed: str, limit):
+    global BLOCKED
     seed = SEED_ALIASES.get(seed, seed)
+    BLOCKED = _blocked(seed)
     SEEDS.mkdir(parents=True, exist_ok=True)
     cfg = load_config()
     cands = load_seed(seed)[: limit or None]
@@ -302,7 +306,9 @@ def cmd_verify(path: str):
     cfg = load_config()
     rows = [json.loads(l) for l in open(path) if l.strip()]
     ok, bad = [], []
+    global BLOCKED
     for r in rows:
+        BLOCKED = _blocked(r.get("seed"))
         if r.get("ats") in ATS_FETCHERS and r.get("token") and validate(r["ats"], r["token"], r["name"], strict=False):
             e = {"name": r["name"], "ats": r["ats"], "token": r["token"], "tags": r.get("tags", []),
                  "seed": r.get("seed", "research"), "domain": r.get("domain", ""), "detected_by": "research",
