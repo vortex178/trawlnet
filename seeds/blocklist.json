@@ -48,5 +48,23 @@
   "seeds": [
    "remoteintech"
   ]
+ },
+ {
+  "ats": "greenhouse",
+  "token": "wise",
+  "why": "US namesake (sales agents), not Wise (wise.com)",
+  "seeds": [
+   "uk",
+   "eu",
+   "sea"
+  ]
+ },
+ {
+  "ats": "greenhouse",
+  "token": "peak",
+  "why": "US physical-therapy clinics, not Peak (peak.ai)",
+  "seeds": [
+   "uk"
+  ]
  }
 ]
