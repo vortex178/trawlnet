@@ -1,0 +1,44 @@
+# Country pack: Mexico. Starting point: extend the city list and remote terms as needed.
+# Everything country-specific the engine needs lives here; config.yaml picks the pack (`country: MX`) and
+# may override any key under `pack_overrides:`. Validate edits with `python -m unittest discover tests`.
+country: MX
+name: Mexico
+country_aliases: [méxico]
+currency: MXN
+fx_to_local: {USD: 18.5, EUR: 20.0, GBP: 23.5, INR: 0.22, BRL: 3.4}   # manual rates; refresh occasionally
+timezone_default: America/Mexico_City
+
+# City catalog: key + aliases. Setup copies the user's chosen subset into config `accept_cities`.
+cities:
+  mexico city: [cdmx, ciudad de mexico, ciudad de méxico]
+  guadalajara: []
+  monterrey: []
+  puebla: []
+  querétaro: [queretaro]
+  tijuana: []
+
+# Any place name in the country: "other city" rejection and country-targeted copies of multi-geo listings.
+country_places: [mexico, méxico, mexico city, cdmx, guadalajara, monterrey, puebla, querétaro, queretaro, tijuana, merida,
+                 mérida, cancun, cancún, león, leon]
+
+# Remote eligibility: kept if the location/region names a positive term, rejected if it names a reject term
+# (checked after positives), otherwise decided from JD phrases like "must be based in ...".
+remote_positive: [mexico, méxico, latam, latin america, north america, americas]
+remote_reject: [us, usa, u s, united states, america, canada, south america, europe, european, eu, emea, uk, united kingdom,
+                england, london, germany, france, spain, portugal, netherlands, ireland, poland, romania, australia,
+                new zealand, brazil, argentina, colombia, costa rica, japan, singapore, philippines, uae, dubai, israel,
+                south africa, nigeria, kenya, pst, est, cet, czechia, czech republic, ukraine, hungary, serbia, croatia,
+                estonia, finland, italy, armenia, cyprus, georgia, greece, bulgaria, lithuania, latvia, slovakia, slovenia,
+                austria, switzerland, belgium, denmark, sweden, norway, turkey, egypt, morocco, chile, peru, uruguay,
+                vietnam, indonesia, malaysia, thailand, pakistan, bangladesh, san francisco, bay area, sf, new york, nyc,
+                los angeles, seattle, boston, chicago, aus, anz, austin, denver, toronto, vancouver, berlin, amsterdam,
+                paris, munich, tel aviv, india, apac, asia, ist, asia pacific, south asia, southeast asia, mena,
+                middle east, gcc, sydney, melbourne, sao paulo, tokyo, seoul, hong kong, gmt, bst, cest, us only, usa only,
+                scotland, wales]
+
+indeed_country: MX
+adzuna:
+  country: mx
+  details_domain: www.adzuna.com.mx
+  city_spellings: {}
+default_seed: latam
