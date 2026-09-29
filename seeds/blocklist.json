@@ -98,5 +98,13 @@
   "seeds": [
    "sea"
   ]
+ },
+ {
+  "ats": "ashby",
+  "token": "zip",
+  "why": "Zip (US procurement), not Zip Co (zip.co)",
+  "seeds": [
+   "anz"
+  ]
  }
 ]
