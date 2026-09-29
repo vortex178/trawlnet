@@ -6,6 +6,7 @@ rules. Zero LLM tokens. Seeds: the data folder's data/seeds/<name>.(yaml|json) (
                                               detect ATS (careers-page links, then verified slug probes),
                                               count relevant jobs, merge into data/companies.json,
                                               write unresolved to data/seeds/unresolved-<seed>.json
+  discover.py refresh [--seed a,b]            re-check known boards (counts, dead -> inactive), retry unresolved
   discover.py custom [--seed a,b]             add unresolved companies as `custom` careers-page entries
   discover.py verify <jsonl>                  verify agent findings {"name","ats","token"} and merge
   discover.py summary                         counts by seed/ATS/active
@@ -25,7 +26,7 @@ import yaml
 
 from common import COMPANIES_PATH, DATA, SEEDS_DIR, UA, age_days, load_config, norm_company, rel, today
 from jobsearch import location_check
-from sources import ATS_FETCHERS, _cfg, _post_json, is_dead
+from sources import ATS_FETCHERS, _cfg, _post_json, is_dead, record_outcome, DEAD_AFTER
 
 
 def _undocumented_ok() -> bool:
@@ -369,6 +370,34 @@ def cmd_custom(seed: str):
           f"{free_ok} list jobs in plain HTML (free), {len(new) - free_ok} need Firecrawl (rotated within budget)")
 
 
+def cmd_refresh(seed: str):
+    """Re-check every known board of a seed (free): update job counts, revive/retire boards, then retry the
+    seed's unresolved and newly listed companies. Boards dead for several days go inactive (never deleted)."""
+    seed = SEED_ALIASES.get(seed, seed)
+    names = {seed} | {k for k, v in SEED_ALIASES.items() if v == seed}
+    cfg = load_config()
+    cur = load_companies()
+    mine = [c for c in cur if c.get("seed") in names and c.get("ats") in ATS_FETCHERS]
+    with ThreadPoolExecutor(max_workers=12) as ex:
+        results = list(ex.map(lambda c: count_jobs(c, cfg), mine))
+    down = retired = 0
+    for c, r in zip(mine, results):
+        pinned = c.get("manual") and "active" in c  # user-set active flags win
+        if "error" in r:
+            down += 1
+            if is_dead(c) and not pinned and c.get("active", True):
+                c["active"], retired = False, retired + 1
+            continue
+        c.update({k: r[k] for k in ("total_jobs", "relevant_jobs", "relevant_fresh") if k in r}, checked=today())
+        record_outcome(c)
+        if not pinned:
+            c["active"] = r["relevant_jobs"] > 0
+    COMPANIES_PATH.write_text(json.dumps(cur, indent=1, ensure_ascii=False) + "\n")
+    print(f"{seed} refresh: {len(mine)} boards checked | ok {len(mine) - down} | unreachable {down} "
+          f"| retired (dead {DEAD_AFTER}+ days) {retired}")
+    cmd_run(seed, None)
+
+
 def selected_seeds(arg=None) -> list:
     """Seeds to process: --seed a,b, else config `seeds:` (list), else the country pack's default_seed."""
     if arg:
@@ -397,6 +426,9 @@ if __name__ == "__main__":
         lim = int(a[a.index("--limit") + 1]) if "--limit" in a else None
         for seed in selected_seeds(a[a.index("--seed") + 1] if "--seed" in a else None):
             cmd_run(seed, lim)
+    elif a[0] == "refresh":
+        for seed in selected_seeds(a[a.index("--seed") + 1] if "--seed" in a else None):
+            cmd_refresh(seed)
     elif a[0] == "custom":
         for seed in selected_seeds(a[a.index("--seed") + 1] if "--seed" in a else None):
             cmd_custom(seed)

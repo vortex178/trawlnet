@@ -328,6 +328,28 @@ class CommandsTest(TmpCase):
         self.assertIn("in: 2 candidates", out)
         self.assertTrue((self.seeds / "unresolved-in.json").exists())
 
+    def test_refresh_updates_revives_and_retires(self):
+        def co(name, **kw):
+            return {"name": name, "ats": "lever", "token": name.lower(), "seed": "in", **kw}
+        self.companies.write_text(json.dumps([
+            co("Ok", active=False, gone_days=2), co("Dead", gone_days=3), co("Blip", gone_days=1),
+            co("Pinned", gone_days=3, manual=True, active=True), co("Other", seed="x", gone_days=3),
+            {"name": "Site", "ats": "custom", "token": "site", "seed": "in"}]))
+        counts = {"ok": {"total_jobs": 9, "relevant_jobs": 2, "relevant_fresh": 1}}
+
+        def count(c, cfg):
+            return counts.get(c["token"], {"total_jobs": None, "relevant_jobs": 0, "error": "HTTPError"})
+        (self.seeds / "in.json").write_text("[]")
+        with mock.patch.object(discover, "count_jobs", count), mock.patch.object(discover, "load_config", return_value={}):
+            out = capture(discover.cmd_refresh, "india")  # alias india -> in
+        self.assertIn("in refresh: 4 boards checked | ok 1 | unreachable 3 | retired (dead 3+ days) 1", out)
+        by = {c["name"]: c for c in json.loads(self.companies.read_text())}
+        self.assertEqual((by["Ok"]["active"], by["Ok"]["gone_days"], by["Ok"]["relevant_jobs"]), (True, 0, 2))
+        self.assertFalse(by["Dead"]["active"])
+        self.assertTrue(by["Blip"].get("active", True))
+        self.assertTrue(by["Pinned"]["active"])
+        self.assertNotIn("active", by["Other"])
+
     def test_verify_agent_findings(self):
         f = self.dir / "found.jsonl"
         f.write_text("\n".join(json.dumps(r) for r in [
@@ -419,6 +441,12 @@ class CliTest(unittest.TestCase):
         out = self.run_cli("run").stdout
         self.assertIn("b: 0 candidates", out)
         self.assertNotIn("a: 0", out)
+
+    def test_refresh_cli(self):
+        (self.home / "data/seeds/a.json").write_text("[]")
+        out = self.run_cli("refresh", "--seed", "a").stdout
+        self.assertIn("a refresh: 0 boards checked", out)
+        self.assertIn("a: 0 candidates", out)
 
     def test_usage_and_missing_seed(self):
         for argv in ((), ("bogus",)):
