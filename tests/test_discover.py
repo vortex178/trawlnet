@@ -94,6 +94,14 @@ class HttpHelpersTest(unittest.TestCase):
             self.assertEqual(discover._blocked("us"), {("lever", "bad")})
             self.assertEqual(discover._blocked("in"), {("lever", "bad"), ("greenhouse", "slice")})
 
+    def test_selected_seeds(self):
+        self.assertEqual(discover.selected_seeds("in, remoteintech,in"), ["in", "remoteintech"])
+        pack = {"default_seed": "in"}
+        for cfg, want in (({"pack": pack}, ["in"]), ({"pack": pack, "seeds": "us"}, ["us"]),
+                          ({"pack": pack, "seeds": ["in", "us"]}, ["in", "us"])):
+            with mock.patch.object(discover, "load_config", return_value=cfg):
+                self.assertEqual(discover.selected_seeds(), want)
+
     def test_undocumented_gate(self):
         with mock.patch.object(discover, "_cfg", return_value={"sources": {"undocumented_ats": True}}):
             self.assertTrue(discover._undocumented_ok())
@@ -396,6 +404,18 @@ class CliTest(unittest.TestCase):
         repo = self.home / "ri" / "src" / "companies"
         repo.mkdir(parents=True)
         self.assertIn("remoteintech seed: 0 companies", self.run_cli("import-remoteintech", str(self.home / "ri")).stdout)
+
+    def test_default_and_multiple_seeds(self):
+        for n in ("a", "b"):
+            (self.home / f"data/seeds/{n}.json").write_text("[]")
+        out = self.run_cli("run", "--seed", "a,b").stdout
+        self.assertIn("a: 0 candidates", out)
+        self.assertIn("b: 0 candidates", out)
+        cfg = self.home / "config.yaml"
+        cfg.write_text(cfg.read_text() + "\nseeds: [b]\n")
+        out = self.run_cli("run").stdout
+        self.assertIn("b: 0 candidates", out)
+        self.assertNotIn("a: 0", out)
 
     def test_usage_and_missing_seed(self):
         for argv in ((), ("bogus",)):

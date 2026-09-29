@@ -2,11 +2,11 @@
 rules. Zero LLM tokens. Seeds: the data folder's data/seeds/<name>.(yaml|json) (user lists) else the plugin's seeds/.
 
   discover.py import-remoteintech <repo_dir>   build data/seeds/remoteintech.json from the repo's src/companies/*.md
-  discover.py run --seed <name> [--limit N]    e.g. `in` (curated Indian product companies), `remoteintech`
+  discover.py run [--seed a,b] [--limit N]     seeds: --seed, else config `seeds:`, else the pack's default_seed
                                               detect ATS (careers-page links, then verified slug probes),
                                               count relevant jobs, merge into data/companies.json,
                                               write unresolved to data/seeds/unresolved-<seed>.json
-  discover.py custom --seed <name>            add unresolved companies as `custom` careers-page entries
+  discover.py custom [--seed a,b]             add unresolved companies as `custom` careers-page entries
   discover.py verify <jsonl>                  verify agent findings {"name","ats","token"} and merge
   discover.py summary                         counts by seed/ATS/active
 """
@@ -369,6 +369,17 @@ def cmd_custom(seed: str):
           f"{free_ok} list jobs in plain HTML (free), {len(new) - free_ok} need Firecrawl (rotated within budget)")
 
 
+def selected_seeds(arg=None) -> list:
+    """Seeds to process: --seed a,b, else config `seeds:` (list), else the country pack's default_seed."""
+    if arg:
+        names = arg.split(",")
+    else:
+        cfg = load_config()
+        names = cfg.get("seeds") or [cfg["pack"].get("default_seed")]
+        names = [names] if isinstance(names, str) else names
+    return list(dict.fromkeys(n.strip() for n in names if n and n.strip()))
+
+
 def cmd_summary():
     cur = load_companies()
     print(f"companies: {len(cur)} | active: {sum(bool(c.get('active')) for c in cur)} | "
@@ -382,11 +393,12 @@ if __name__ == "__main__":
     if a[0] == "import-remoteintech":
         cmd_import_remoteintech(a[1])
     elif a[0] == "run":
-        seed = a[a.index("--seed") + 1]
         lim = int(a[a.index("--limit") + 1]) if "--limit" in a else None
-        cmd_run(seed, lim)
+        for seed in selected_seeds(a[a.index("--seed") + 1] if "--seed" in a else None):
+            cmd_run(seed, lim)
     elif a[0] == "custom":
-        cmd_custom(a[a.index("--seed") + 1])
+        for seed in selected_seeds(a[a.index("--seed") + 1] if "--seed" in a else None):
+            cmd_custom(seed)
     elif a[0] == "verify":
         cmd_verify(a[1])
     elif a[0] == "summary":

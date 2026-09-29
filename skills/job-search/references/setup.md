@@ -21,7 +21,7 @@ python3 "<skill>/scripts/setup.py" init --home <folder> --country <CC> --cities 
 ```
 Then tell the user to: open a Claude Code session in the data folder; add each resume (`profile add <file>`);
 optionally add keys to `.secrets/` (Adzuna `adzuna.json`, Firecrawl `firecrawl.key`, Google service account) and
-enable the matching `sources`/`firecrawl` flags; run `./js discover run --seed <pack default_seed>`; do a dry run
+enable the matching `sources`/`firecrawl` flags; run `./js discover run` (seeds: config `seeds:` list, else the pack's default_seed; `--seed a,b` overrides); do a dry run
 (`run --dry`), then a real run. `./js setup doctor` checks everything.
 
 Updating the plugin: the next `run` re-links automatically (`setup.py link`); restart the session if agents changed.

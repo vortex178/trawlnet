@@ -8,6 +8,7 @@ country: {{COUNTRY}}
 accept_cities:
 {{CITIES}}
 accept_any_country_location: true  # a location naming only the country (no city) counts as a match
+# seeds: [remoteintech]            # discovery seed lists (seeds/<name>.yaml|json); default = the pack's default_seed
 remote_scope: country_eligible     # country_eligible (remote must be open to your country) | global_ok
 
 # Indeed connector (optional): the claude.ai Indeed connector's tool-name prefix, e.g. mcp__<server-id>.
