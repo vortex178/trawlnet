@@ -458,7 +458,8 @@ def cmd_topup_import(seed: str, path: str):
             continue
         known.add(norm_company(name))
         tag = r.get("tag") if r.get("tag") in groups else (groups[0] if groups else f"{seed}-product")
-        entry = f"  - [{json.dumps(name) if re.search(r'[]\[,:#]', name) else name}, {dom}]"
+        label = json.dumps(name) if re.search(r"[\[\],:#]", name) else name  # quote what would break a YAML flow list
+        entry = f"  - [{label}, {dom}]"
         if tag in groups:
             head = lines.index(f"{tag}:")
             end = head
