@@ -2,7 +2,7 @@
 rules. Zero LLM tokens. Seeds: the data folder's data/seeds/<name>.(yaml|json) (user lists) else the plugin's seeds/.
 
   discover.py import-remoteintech <repo_dir>   build data/seeds/remoteintech.json from the repo's src/companies/*.md
-  discover.py run [--seed a,b] [--limit N]     seeds: --seed, else config `seeds:`, else the pack's default_seed
+  discover.py run [--seed a,b] [--limit N]     seeds: --seed, else config `seeds:`, else the pack's default_seed (a name or a list)
                                               detect ATS (careers-page links, then verified slug probes),
                                               count relevant jobs, merge into data/companies.json,
                                               write unresolved to data/seeds/unresolved-<seed>.json
@@ -404,7 +404,7 @@ def selected_seeds(arg=None) -> list:
         names = arg.split(",")
     else:
         cfg = load_config()
-        names = cfg.get("seeds") or [cfg["pack"].get("default_seed")]
+        names = cfg.get("seeds") or cfg["pack"].get("default_seed") or []
         names = [names] if isinstance(names, str) else names
     return list(dict.fromkeys(n.strip() for n in names if n and n.strip()))
 

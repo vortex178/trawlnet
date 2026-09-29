@@ -30,4 +30,4 @@ adzuna:
   country: us
   details_domain: www.adzuna.com
   city_spellings: {}
-default_seed: remoteintech
+default_seed: [us, remoteintech]   # a name or a list; config `seeds:` overrides

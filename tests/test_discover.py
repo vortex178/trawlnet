@@ -98,7 +98,8 @@ class HttpHelpersTest(unittest.TestCase):
         self.assertEqual(discover.selected_seeds("in, remoteintech,in"), ["in", "remoteintech"])
         pack = {"default_seed": "in"}
         for cfg, want in (({"pack": pack}, ["in"]), ({"pack": pack, "seeds": "us"}, ["us"]),
-                          ({"pack": pack, "seeds": ["in", "us"]}, ["in", "us"])):
+                          ({"pack": pack, "seeds": ["in", "us"]}, ["in", "us"]),
+                          ({"pack": {"default_seed": ["us", "remoteintech"]}}, ["us", "remoteintech"])):
             with mock.patch.object(discover, "load_config", return_value=cfg):
                 self.assertEqual(discover.selected_seeds(), want)
 

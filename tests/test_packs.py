@@ -15,6 +15,11 @@ REQUIRED = ("country", "name", "currency", "fx_to_local", "timezone_default", "c
             "remote_positive", "remote_reject", "indeed_country", "default_seed")
 
 
+def seeds_of(pack):
+    s = pack["default_seed"]
+    return [s] if isinstance(s, str) else s
+
+
 def rec(location, remote=None):
     return {"source": "greenhouse", "title": "Backend Engineer", "location": location, "remote": remote,
             "region_text": "", "eligible_countries": "", "description": ""}
@@ -38,16 +43,16 @@ class PackTest(unittest.TestCase):
                 if "adzuna" in p:
                     self.assertIn(p["adzuna"]["country"], ADZUNA)
                     self.assertTrue(p["adzuna"]["details_domain"].startswith("www.adzuna."))
-                seed = p["default_seed"]
-                self.assertTrue(any((SEEDS_DIR / f"{seed}{x}").exists() for x in (".yaml", ".json")), seed)
+                for seed in seeds_of(p):
+                    self.assertTrue(any((SEEDS_DIR / f"{seed}{x}").exists() for x in (".yaml", ".json")), seed)
 
     def test_default_seeds_parse(self):
         for cc in PACKS:
-            seed = load_pack(cc)["default_seed"]
-            path = SEEDS_DIR / f"{seed}.yaml"
-            if path.exists():
-                rows = yaml.safe_load(path.read_text())
-                self.assertTrue(all(len(e) == 2 for xs in rows.values() for e in xs), seed)
+            for seed in seeds_of(load_pack(cc)):
+                path = SEEDS_DIR / f"{seed}.yaml"
+                if path.exists():
+                    rows = yaml.safe_load(path.read_text())
+                    self.assertTrue(all(len(e) == 2 for xs in rows.values() for e in xs), seed)
 
     def test_routing_basics(self):
         for cc in PACKS:
