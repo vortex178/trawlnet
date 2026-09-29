@@ -1,0 +1,46 @@
+# Country pack: Australia. Starting point: extend the city list and remote terms as needed.
+# Everything country-specific the engine needs lives here; config.yaml picks the pack (`country: AU`) and
+# may override any key under `pack_overrides:`. Validate edits with `python -m unittest discover tests`.
+country: AU
+name: Australia
+country_aliases: []
+currency: AUD
+fx_to_local: {USD: 1.52, EUR: 1.65, GBP: 1.93, INR: 0.018, CAD: 1.11, SGD: 1.13, NZD: 0.91}   # manual rates; refresh occasionally
+timezone_default: Australia/Sydney
+
+# City catalog: key + aliases. Setup copies the user's chosen subset into config `accept_cities`.
+cities:
+  sydney: []
+  melbourne: []
+  brisbane: []
+  perth: []
+  adelaide: []
+  canberra: []
+  gold coast: []
+  hobart: []
+
+# Any place name in the country: "other city" rejection and country-targeted copies of multi-geo listings.
+country_places: [australia, sydney, melbourne, brisbane, perth, adelaide, canberra, gold coast, hobart, newcastle,
+                 wollongong, geelong, darwin, new south wales, nsw, victoria, queensland]
+
+# Remote eligibility: kept if the location/region names a positive term, rejected if it names a reject term
+# (checked after positives), otherwise decided from JD phrases like "must be based in ...".
+remote_positive: [australia, apac, asia pacific, anz, aus, aest, aedt]
+remote_reject: [us, usa, u s, united states, america, americas, north america, canada, latam, latin america, south america,
+                europe, european, eu, emea, uk, united kingdom, england, london, germany, france, spain, portugal,
+                netherlands, ireland, poland, romania, new zealand, brazil, mexico, argentina, colombia, costa rica, japan,
+                singapore, philippines, uae, dubai, israel, south africa, nigeria, kenya, pst, est, cet, czechia,
+                czech republic, ukraine, hungary, serbia, croatia, estonia, finland, italy, armenia, cyprus, georgia,
+                greece, bulgaria, lithuania, latvia, slovakia, slovenia, austria, switzerland, belgium, denmark, sweden,
+                norway, turkey, egypt, morocco, chile, peru, uruguay, vietnam, indonesia, malaysia, thailand, pakistan,
+                bangladesh, san francisco, bay area, sf, new york, nyc, los angeles, seattle, boston, chicago, austin,
+                denver, toronto, vancouver, berlin, amsterdam, paris, munich, tel aviv, india, ist, south asia,
+                southeast asia, mena, middle east, gcc, sao paulo, mexico city, tokyo, seoul, hong kong, gmt, bst, cest,
+                us only, usa only, scotland, wales]
+
+indeed_country: AU
+adzuna:
+  country: au
+  details_domain: www.adzuna.com.au
+  city_spellings: {}
+default_seed: anz
