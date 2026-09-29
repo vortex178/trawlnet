@@ -66,5 +66,29 @@
   "seeds": [
    "uk"
   ]
+ },
+ {
+  "ats": "greenhouse",
+  "token": "bird",
+  "why": "Bird e-scooters, not Bird (bird.com)",
+  "seeds": [
+   "eu"
+  ]
+ },
+ {
+  "ats": "ashby",
+  "token": "flink",
+  "why": "Zurich robotics namesake, not Flink (goflink.com)",
+  "seeds": [
+   "eu"
+  ]
+ },
+ {
+  "ats": "ashby",
+  "token": "lunar",
+  "why": "US health-informatics namesake, not Lunar (lunar.app)",
+  "seeds": [
+   "eu"
+  ]
  }
 ]
