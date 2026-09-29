@@ -1,0 +1,38 @@
+# Country pack: Singapore. Starting point: extend the city list and remote terms as needed.
+# Everything country-specific the engine needs lives here; config.yaml picks the pack (`country: SG`) and
+# may override any key under `pack_overrides:`. Validate edits with `python -m unittest discover tests`.
+country: SG
+name: Singapore
+country_aliases: [sg]
+currency: SGD
+fx_to_local: {USD: 1.34, EUR: 1.45, GBP: 1.7, INR: 0.016, AUD: 0.88}   # manual rates; refresh occasionally
+timezone_default: Asia/Singapore
+
+# City catalog: key + aliases. Setup copies the user's chosen subset into config `accept_cities`.
+cities:
+  singapore: []
+
+# Any place name in the country: "other city" rejection and country-targeted copies of multi-geo listings.
+country_places: [singapore, sg]
+
+# Remote eligibility: kept if the location/region names a positive term, rejected if it names a reject term
+# (checked after positives), otherwise decided from JD phrases like "must be based in ...".
+remote_positive: [singapore, sg, apac, asia, asia pacific, southeast asia]
+remote_reject: [us, usa, u s, united states, america, americas, north america, canada, latam, latin america, south america,
+                europe, european, eu, emea, uk, united kingdom, england, london, germany, france, spain, portugal,
+                netherlands, ireland, poland, romania, australia, new zealand, brazil, mexico, argentina, colombia,
+                costa rica, japan, philippines, uae, dubai, israel, south africa, nigeria, kenya, pst, est, cet, czechia,
+                czech republic, ukraine, hungary, serbia, croatia, estonia, finland, italy, armenia, cyprus, georgia,
+                greece, bulgaria, lithuania, latvia, slovakia, slovenia, austria, switzerland, belgium, denmark, sweden,
+                norway, turkey, egypt, morocco, chile, peru, uruguay, vietnam, indonesia, malaysia, thailand, pakistan,
+                bangladesh, san francisco, bay area, sf, new york, nyc, los angeles, seattle, boston, chicago, aus, anz,
+                austin, denver, toronto, vancouver, berlin, amsterdam, paris, munich, tel aviv, india, ist, south asia,
+                mena, middle east, gcc, sydney, melbourne, sao paulo, mexico city, tokyo, seoul, hong kong, gmt, bst, cest,
+                us only, usa only, scotland, wales]
+
+indeed_country: SG
+adzuna:
+  country: sg
+  details_domain: www.adzuna.sg
+  city_spellings: {}
+default_seed: sea
