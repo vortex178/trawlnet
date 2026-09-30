@@ -1,7 +1,7 @@
 {
   "name": "job-search",
   "version": "0.1.0",
-  "description": "Token-efficient job search: scripts fetch and filter jobs from public job boards; Haiku checks ambiguous titles; Sonnet scores a capped shortlist against your resumes with cited evidence; matches go to a CSV or Google Sheets tracker.",
+  "description": "(Beta) Token-efficient job search: scripts fetch and filter jobs from public job boards; Haiku checks ambiguous titles; Sonnet scores a capped shortlist against your resumes with cited evidence; matches go to a CSV or Google Sheets tracker.",
   "author": {
     "name": "vortex178"
   },

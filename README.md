@@ -10,6 +10,28 @@ job feeds and aggregators.
 
 It never applies to jobs, logs in to job sites, or handles your passwords.
 
+## Status: beta
+
+trawlnet is a **beta** (v0.1.x). It is built and used daily by one person, and the testing behind it is narrow:
+
+- **Only the India pack (`in`) has been run end to end** against live sources, on one machine (macOS), with one user's
+  profiles and a Google Sheets tracker. The other packs (`us`, `gb`, `ca`, `au`, `sg`, `ae`, `br`, `mx`, `de`, `nl`,
+  `ie`, `fr`, `es`, `pl`) and region seed lists are checked only by offline tests (structure, routing basics) and by
+  measuring how many seed companies resolve to a job board. Their city lists, remote-eligibility terms and FX rates
+  are best-effort starting points; expect gaps and tune them via `pack_overrides:`.
+- **Seed lists are model-generated and unverified beyond board resolution.** Resolution rates vary by region (about 75%
+  for `us`, down to about 12% for `uae`); some companies are missing, moved or share a name with an unrelated
+  board (known cases are in `seeds/blocklist.json`). Use `discover refresh` and `discover topup` to keep lists fresh.
+- **Scoring is LLM-based and not validated against human judgement.** Scores and gate checks are evidence-cited but can be
+  wrong or inconsistent between runs; read the evidence before acting on a match.
+- **Automated tests are offline** (mocked network, Python 3.9 and 3.12 in CI). Live sources (ATS boards, Adzuna, Indeed
+  connector, Firecrawl, We Work Remotely, Remote OK) change without notice and can break a fetcher. The Indeed
+  connector depends on your Claude account and region; Firecrawl and Adzuna need your own keys.
+- Linux, Windows and the CSV tracker have had little or no real-world use.
+
+Please report problems at the repository's issue tracker, with the failing command and `./js setup doctor` output
+(remove personal details first).
+
 ## How a run works
 
 | Step | Who | Tokens |
