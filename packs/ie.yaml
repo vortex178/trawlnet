@@ -1,0 +1,51 @@
+# Country pack: Ireland. Starting point: extend the city list and remote terms as needed.
+# Everything country-specific the engine needs lives here; config.yaml picks the pack (`country: IE`) and
+# may override any key under `pack_overrides:`. Validate edits with `python -m unittest discover tests`.
+# Adzuna has no Ireland site, so there is no `adzuna:` block; other sources cover the country.
+country: IE
+name: Ireland
+country_aliases: [republic of ireland, éire, eire]
+currency: EUR
+fx_to_local: {USD: 0.92, GBP: 1.17, INR: 0.011, CHF: 1.05, CAD: 0.67}   # manual rates; refresh occasionally
+timezone_default: Europe/Dublin
+
+# City catalog: key + aliases. Setup copies the user's chosen subset into config `accept_cities`.
+cities:
+  dublin: [baile átha cliath, dublin city]
+  cork: []
+  galway: []
+  limerick: []
+  waterford: []
+  kilkenny: []
+  athlone: []
+  sligo: []
+  drogheda: []
+  dundalk: []
+
+# Any place name in the country: "other city" rejection and country-targeted copies of multi-geo listings.
+country_places: [ireland, éire, eire, dublin, cork, galway, limerick, waterford, kilkenny, athlone, sligo, drogheda,
+                 dundalk, swords, tralee, killarney, letterkenny, wexford, carlow, navan, naas, maynooth, bray,
+                 dun laoghaire, dún laoghaire, blanchardstown, tallaght, clonmel, ennis, mullingar, portlaoise,
+                 county dublin, county cork, county galway, county kerry, county clare, county mayo, county donegal,
+                 county meath, county kildare, county wicklow, county louth, county wexford, county limerick,
+                 county tipperary, county waterford, county kilkenny, county sligo, county offaly, county laois]
+
+# Remote eligibility: kept if the location/region names a positive term, rejected if it names a reject term
+# (checked after positives), otherwise decided from JD phrases like "must be based in ...".
+# Note: "ist" is deliberately not a positive term (it means India time in other packs).
+remote_positive: [ireland, eire, éire, republic of ireland, eu, european union, europe, european, emea, gmt]
+remote_reject: [us, usa, u s, united states, america, americas, north america, canada, latam, latin america, south america,
+                uk, united kingdom, great britain, england, london, scotland, wales, northern ireland, belfast, france,
+                spain, portugal, netherlands, germany, poland, romania, australia, new zealand, brazil, mexico,
+                argentina, colombia, costa rica, japan, singapore, philippines, uae, dubai, israel, south africa,
+                nigeria, kenya, pst, est, czechia, czech republic, ukraine, hungary, serbia, croatia, estonia,
+                finland, italy, armenia, cyprus, georgia, greece, bulgaria, lithuania, latvia, slovakia, slovenia,
+                austria, switzerland, belgium, denmark, sweden, norway, turkey, egypt, morocco, chile, peru, uruguay,
+                vietnam, indonesia, malaysia, thailand, pakistan, bangladesh, san francisco, bay area, sf, new york,
+                nyc, los angeles, seattle, boston, chicago, aus, anz, austin, denver, toronto, vancouver, amsterdam,
+                paris, berlin, munich, tel aviv, india, apac, asia, ist, asia pacific, south asia, southeast asia,
+                mena, middle east, gcc, sydney, melbourne, sao paulo, mexico city, tokyo, seoul, hong kong, bst,
+                us only, usa only]
+
+indeed_country: IE
+default_seed: eu
