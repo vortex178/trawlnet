@@ -22,7 +22,7 @@ It never applies to jobs, logs in to job sites, or handles your passwords.
 | publish: digest, tracker rows, seen list, run log | script | 0 |
 
 Country specifics (cities, remote-eligibility words, currency, FX, Adzuna domain) live in **country packs**
-(`packs/<cc>.yaml`: `in`, `us`, `gb`, `ca`, `au`, `sg`, `ae`, `br`, `mx`, `de`, `nl`). Adding a country is a YAML file, not code.
+(`packs/<cc>.yaml`: `in`, `us`, `gb`, `ca`, `au`, `sg`, `ae`, `br`, `mx`, `de`, `nl`, `ie`, `fr`, `es`, `pl`). Adding a country is a YAML file, not code.
 
 ## Install
 
