@@ -1,0 +1,49 @@
+# Country pack: Poland. Starting point: extend the city list and remote terms as needed.
+# Everything country-specific the engine needs lives here; config.yaml picks the pack (`country: PL`) and
+# may override any key under `pack_overrides:`. Validate edits with `python -m unittest discover tests`.
+country: PL
+name: Poland
+country_aliases: [polska]
+currency: PLN
+fx_to_local: {USD: 3.65, EUR: 4.25, GBP: 4.95, INR: 0.043, CAD: 2.65, CHF: 4.55}   # manual rates; refresh occasionally
+timezone_default: Europe/Warsaw
+
+# City catalog: key + aliases. Setup copies the user's chosen subset into config `accept_cities`.
+cities:
+  warsaw: [warszawa]
+  krakow: [kraków, cracow]
+  wroclaw: [wrocław, breslau]
+  gdansk: [gdańsk, danzig]
+  poznan: [poznań]
+  lodz: [łódź]
+  katowice: []
+  gdynia: []
+  szczecin: []
+  lublin: []
+
+# Any place name in the country: "other city" rejection and country-targeted copies of multi-geo listings.
+country_places: [poland, polska, warsaw, warszawa, krakow, kraków, cracow, wroclaw, wrocław, gdansk, gdańsk, poznan, poznań,
+                 lodz, łódź, katowice, gdynia, szczecin, lublin, bialystok, białystok, bydgoszcz, torun, toruń, rzeszow,
+                 rzeszów, sopot, gliwice, opole, kielce, olsztyn]
+
+# Remote eligibility: kept if the location/region names a positive term, rejected if it names a reject term
+# (checked after positives), otherwise decided from JD phrases like "must be based in ...".
+remote_positive: [poland, polska, eu, european union, europe, european, emea, cet, cest]
+remote_reject: [us, usa, u s, united states, america, americas, north america, canada, latam, latin america, south america,
+                uk, united kingdom, england, london, france, spain, portugal, netherlands, ireland, germany, deutschland,
+                romania, australia, new zealand, brazil, mexico, argentina, colombia, costa rica, japan, singapore,
+                philippines, uae, dubai, israel, south africa, nigeria, kenya, pst, est, czechia, czech republic, ukraine,
+                hungary, serbia, croatia, estonia, finland, italy, armenia, cyprus, georgia, greece, bulgaria, lithuania,
+                latvia, slovakia, slovenia, austria, switzerland, belgium, denmark, sweden, norway, turkey, egypt, morocco,
+                chile, peru, uruguay, vietnam, indonesia, malaysia, thailand, pakistan, bangladesh, san francisco,
+                bay area, sf, new york, nyc, los angeles, seattle, boston, chicago, aus, anz, austin, denver, toronto,
+                vancouver, amsterdam, paris, berlin, tel aviv, india, apac, asia, asia pacific, south asia, southeast asia,
+                mena, middle east, gcc, sydney, melbourne, sao paulo, mexico city, tokyo, seoul, hong kong, gmt, bst,
+                us only, usa only, scotland, wales]
+
+indeed_country: PL
+adzuna:
+  country: pl
+  details_domain: www.adzuna.pl
+  city_spellings: {}
+default_seed: eu
