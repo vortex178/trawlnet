@@ -592,15 +592,39 @@ def atlassian_description(url: str) -> str:
     return html_to_text("\n".join(job.get(k) or "" for k in ("overview", "responsibilities", "qualifications"))) if job else ""
 
 
+_WORKABLE_JOB = re.compile(r"https?://apply\.workable\.com/(?:([\w-]+)/)?j/(\w+)")
+
+
+def workable_description(url: str) -> str:
+    """Description of a Workable job linked as apply.workable.com/[<account>/]j/<shortcode> (careers pages that embed the
+    board). The bare shortlink redirects to /<account>/j/<shortcode>; the account's public widget API has the text."""
+    m = _WORKABLE_JOB.match(url)
+    if not m:
+        return ""
+    account, code = m.groups()
+    if not account:
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20) as r:
+                final = r.geturl()
+        except urllib.error.HTTPError as e:  # a bot-check page still carries the redirected URL
+            final = e.geturl()
+        m = _WORKABLE_JOB.match(final)
+        account = m.group(1) if m else None
+    if not account:
+        return ""
+    return next((j["description"] for j in fetch_workable({"name": "", "token": account}) if j["source_id"] == code), "")
+
+
 def custom_description(detail_url: str, budget=None) -> str:
     """Full posting text, or "" when none could be obtained (nav/CSS-only pages are never returned as a JD)."""
     text = ""
-    try:
-        text = atlassian_description(detail_url)
-        if _looks_like_jd(text):
+    for resolver in (atlassian_description, workable_description):  # known JS-rendered/embedded career sites
+        try:
+            text = resolver(detail_url)
+        except Exception:
+            text = ""
+        if text:  # structured sources: trusted as is, no keyword heuristics
             return text
-    except Exception:
-        pass
     try:
         text = html_to_text(_get(detail_url, timeout=20).decode("utf-8", "ignore"))
     except Exception:
@@ -619,7 +643,7 @@ def _title_in(title: str, text: str) -> bool:
 def _ats_job(url: str, title: str, company: str):
     """If url points at a supported ATS board, return the matching job's description via its API."""
     for ats, rx in (("ashby", r"jobs\.ashbyhq\.com/([\w.-]+)"), ("greenhouse", r"greenhouse\.io/([\w-]+)"),
-                    ("lever", r"jobs\.lever\.co/([\w.-]+)"), ("workable", r"apply\.workable\.com/([\w-]+)")):
+                    ("lever", r"jobs\.lever\.co/([\w.-]+)"), ("workable", r"apply\.workable\.com/(?!j/)([\w-]+)")):
         m = re.search(rx, url)
         if m:
             try:

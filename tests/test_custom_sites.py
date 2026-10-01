@@ -129,9 +129,36 @@ class DescriptionTest(unittest.TestCase):
                 mock.patch.object(sources, "_get") as g:
             self.assertEqual(sources.custom_description(url, FakeBudget()), JD)
             g.assert_not_called()
+        with mock.patch.object(sources, "atlassian_description", return_value="Short but structured"):
+            self.assertEqual(sources.custom_description(url, FakeBudget()), "Short but structured")  # resolver text is trusted
         with mock.patch.object(sources, "atlassian_description", side_effect=OSError("down")), \
                 mock.patch.object(sources, "_get", return_value=f"<p>{JD}</p>".encode()):
             self.assertIn("Requirements", sources.custom_description(url, FakeBudget()))
+
+    def test_workable_description_by_account_and_shortlink(self):
+        jobs = [{"source_id": "ABC123", "description": "Workable JD"}, {"source_id": "ZZZ", "description": "other"}]
+        with mock.patch.object(sources, "fetch_workable", return_value=jobs) as fw:
+            self.assertEqual(sources.workable_description("https://apply.workable.com/acme-co/j/ABC123/"), "Workable JD")
+            fw.assert_called_with({"name": "", "token": "acme-co"})
+            self.assertEqual(sources.workable_description("https://apply.workable.com/acme-co/j/MISSING"), "")
+            self.assertEqual(sources.workable_description("https://x.example/j/ABC123"), "")
+
+            class Resp:
+                def __init__(self, url): self.url = url
+                def geturl(self): return self.url
+                def __enter__(self): return self
+                def __exit__(self, *a): return False
+            with mock.patch.object(sources.urllib.request, "urlopen", return_value=Resp("https://apply.workable.com/acme-co/j/ABC123")):
+                self.assertEqual(sources.workable_description("https://apply.workable.com/j/ABC123"), "Workable JD")
+            err = urllib.error.HTTPError("https://apply.workable.com/acme-co/j/ABC123", 403, "blocked", {}, io.BytesIO(b""))
+            with mock.patch.object(sources.urllib.request, "urlopen", side_effect=err):
+                self.assertEqual(sources.workable_description("https://apply.workable.com/j/ABC123"), "Workable JD")
+            with mock.patch.object(sources.urllib.request, "urlopen", return_value=Resp("https://apply.workable.com/")):
+                self.assertEqual(sources.workable_description("https://apply.workable.com/j/ABC123"), "")  # no account found
+
+    def test_ats_job_ignores_workable_shortlink_as_account(self):
+        with mock.patch.dict(sources.ATS_FETCHERS, {"workable": mock.Mock(side_effect=AssertionError("j is not an account"))}):
+            self.assertIsNone(sources._ats_job("https://apply.workable.com/j/ABC123", "Backend Engineer", "Acme"))
 
     def test_title_in(self):
         self.assertTrue(sources._title_in("Senior Backend Engineer (Remote)", "We hire a senior backend engineer"))
