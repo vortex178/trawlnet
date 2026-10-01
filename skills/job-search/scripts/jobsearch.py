@@ -416,8 +416,10 @@ def cmd_shortlist(a, cfg):
             (d / "jd" / f"{r['key']}.txt").write_text(
                 f"{r['title']} — {r['company']} — {r['location']}\n\n{r['description']}")
             jd = rel(d / "jd" / f"{r['key']}.txt")
+        elif r["source"] == "indeed":
+            jd = f"indeed:{r['source_id']}"  # the scorer fetches it through the connector
         else:
-            jd = f"indeed:{r['source_id']}"
+            jd = ""  # no description could be fetched: publish lists it as a lead, no scorer tokens spent
         rows.append({"key": r["key"], "profiles": [p for p, _ in r["routes"]], "title": r["title"],
                      "company": r["company"], "location": r["location"], "posted": r.get("posted"),
                      "salary_text": r.get("salary_text", ""), "url": r["url"], "source": r["source"],
@@ -426,7 +428,8 @@ def cmd_shortlist(a, cfg):
     for old in d.glob("batch-*.jsonl"):
         old.unlink()
     n = cfg["scorer_batch_size"]
-    batches = [rows[i:i + n] for i in range(0, len(rows), n)]
+    scorable = [r for r in rows if r["jd"]]
+    batches = [scorable[i:i + n] for i in range(0, len(scorable), n)]
     for bi, b in enumerate(batches, 1):
         write_jsonl(d / f"batch-{bi}.jsonl", b)
     left = len(accepted) - len(picked)
@@ -481,6 +484,7 @@ def cmd_publish(a, cfg):
                 scores[s["key"]] = s
     for k, s in scores.items():
         _adjust_score(s, short[k], cfg)
+    leads += [r for r in short.values() if not r["jd"]]  # shortlisted without any description (never sent to a scorer)
     lead_keys = {j["key"] for j in leads}
     missing = [k for k in short if k not in scores and k not in lead_keys]
     already = db.seen_keys()

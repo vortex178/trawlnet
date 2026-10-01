@@ -98,6 +98,13 @@ class DescriptionTest(unittest.TestCase):
         with mock.patch.object(sources, "_get", side_effect=OSError("boom")):
             self.assertEqual(sources.custom_description("https://x.example/j/2", None), "")
 
+    def test_custom_description_never_returns_page_chrome(self):
+        nav = b"<html><style>.a{color:red}</style><nav>Home About Careers</nav></html>"
+        with mock.patch.object(sources, "_get", return_value=nav):
+            self.assertEqual(sources.custom_description("https://x.example/j/3", FakeBudget()), "")  # no Firecrawl text
+            b = FakeBudget({"https://x.example/j/3": "# Careers\nSee all openings"})
+            self.assertEqual(sources.custom_description("https://x.example/j/3", b), "")  # Firecrawl got a listing page
+
     def test_title_in(self):
         self.assertTrue(sources._title_in("Senior Backend Engineer (Remote)", "We hire a senior backend engineer"))
         self.assertTrue(sources._title_in("Backend Engineer", "backend and engineer skills"))

@@ -571,17 +571,21 @@ def fetch_custom_firecrawl(company: dict, budget) -> list:
     return _custom_records(company, jobs)
 
 
+def _looks_like_jd(text: str) -> bool:
+    return len(text) >= 600 and len(re.findall(
+        r"responsibilit|requirement|qualification|years of experience|what you.ll|you will|we.re looking|must have", text, re.I)) >= 2
+
+
 def custom_description(detail_url: str, budget=None) -> str:
+    """Full posting text, or "" when none could be obtained (nav/CSS-only pages are never returned as a JD)."""
     text = ""
     try:
         text = html_to_text(_get(detail_url, timeout=20).decode("utf-8", "ignore"))
     except Exception:
         pass
-    looks_like_jd = len(text) >= 600 and len(re.findall(
-        r"responsibilit|requirement|qualification|years of experience|what you.ll|you will|we.re looking|must have", text, re.I)) >= 2
-    if not looks_like_jd and budget is not None and budget.left() > 0:  # JS-rendered/nav-only page -> Firecrawl (1 credit)
+    if not _looks_like_jd(text) and budget is not None and budget.left() > 0:  # JS-rendered/nav-only page -> Firecrawl (1 credit)
         text = (budget.scrape_markdown(detail_url) or text)[:9000]
-    return text
+    return text if _looks_like_jd(text) else ""
 
 
 def _title_in(title: str, text: str) -> bool:

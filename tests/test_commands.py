@@ -168,12 +168,16 @@ class ShortlistTest(unittest.TestCase):
         self.assertEqual(rows["sl-hn"]["jd"], "data/runs/2003-02-03/jd/sl-hn.txt")
         self.assertIn("adzuna full text", (d / "jd" / "sl-adz.txt").read_text())
         self.assertEqual(rows["sl-ind"]["jd"], "indeed:sl-ind")
-        self.assertTrue(rows["sl-cust"]["jd"].startswith("indeed:"))  # detail fetch failed -> undescribed
+        self.assertEqual(rows["sl-cust"]["jd"], "")  # detail fetch failed -> no JD: a lead, never sent to a scorer
+        self.assertEqual(rows["sl-hn2"]["jd"], "")
         self.assertIn("WARN enrich failed for sl-hn2", out)
         self.assertIn("WARN custom detail failed for sl-cust", out)
         self.assertIn("1 accepted not shortlisted", out)
-        self.assertEqual(sorted(p.name for p in d.glob("batch-*.jsonl")), ["batch-1.jsonl", "batch-2.jsonl", "batch-3.jsonl"])
-        self.assertEqual(out.count("BATCH "), 3)
+        self.assertEqual(sorted(p.name for p in d.glob("batch-*.jsonl")), ["batch-1.jsonl", "batch-2.jsonl"])
+        self.assertEqual(out.count("BATCH "), 2)
+        batched = {r["key"] for f in d.glob("batch-*.jsonl") for r in read_jsonl(f)}
+        self.assertEqual(batched, {k for k, r in rows.items() if r["jd"]})
+        self.assertEqual(len(batched), 4)
 
     def test_adzuna_detail_failure_is_reported(self):
         d = run_dir("2003-02-04")
@@ -213,7 +217,7 @@ class PublishEdgeCasesTest(unittest.TestCase):
             job("pub-stale", posted=days_ago(10)), job("pub-wwr", "wwr", expires="2030-01-01"),
             job("pub-al", "alignerr"), job("pub-gate"), job("pub-skip"), job("pub-lead", "custom"),
             job("pub-indeed-vague", "indeed"), job("pub-agg", company="Naukri"), job("pub-seen"),
-            job("pub-hn", "hn"), job("pub-missing")])
+            job("pub-hn", "hn"), job("pub-missing"), job("pub-nojd", "custom", jd="")])
         write_jsonl(d / "scores-1.jsonl", [
             score("pub-stale", 80, strengths=["Java"], gaps=["no k8s"], apply_url="https://apply.example/s"),
             score("pub-stale", 60),  # lower duplicate is ignored
@@ -227,7 +231,7 @@ class PublishEdgeCasesTest(unittest.TestCase):
         out = run(jobsearch.cmd_publish, args(date=run_id, top=3))
 
         digest = (DATA / "digests" / f"{run_id}.md").read_text()
-        self.assertIn("Scored 8 of 11 shortlisted; 5 added to tracker", digest)  # pub-seen is scored but already tracked
+        self.assertIn("Scored 8 of 12 shortlisted; 5 added to tracker", digest)  # pub-seen is scored but already tracked
         self.assertIn("posted 10d ago: -3", digest)
         self.assertIn("[Title pub-stale — Co pub-stale](https://apply.example/s)", digest)
         self.assertIn("strengths: Java", digest)
@@ -253,10 +257,13 @@ class PublishEdgeCasesTest(unittest.TestCase):
         self.assertNotIn("pub-missing", seen)
         self.assertIn("INVALID nope: unknown key", out)
         self.assertIn("LEAD (no JD): Co pub-lead", out)
+        self.assertIn("LEAD (no JD): Co pub-nojd", out)  # never reached a scorer
+        self.assertIn("pub-nojd", seen)
+        self.assertNotRegex(out, r"NOT SCORED \(\d+\): .*pub-nojd")
         self.assertRegex(out, r"NOT SCORED \(\d+\): .*pub-missing")
         self.assertEqual(len([l for l in out.splitlines() if l.startswith("  ") and "—" in l and "LEAD" not in l]), 3)  # --top 3
         self.assertTrue((d / "feeds.jsonl.gz").exists() and not (d / "feeds.jsonl").exists())
-        self.assertIn("| scored 8/11", (HOME / "CLAUDE.md").read_text())
+        self.assertIn("| scored 8/12", (HOME / "CLAUDE.md").read_text())
         self.assertIn("invalid", (HOME / "CLAUDE.md").read_text())
 
 
