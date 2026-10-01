@@ -105,6 +105,34 @@ class DescriptionTest(unittest.TestCase):
             b = FakeBudget({"https://x.example/j/3": "# Careers\nSee all openings"})
             self.assertEqual(sources.custom_description("https://x.example/j/3", b), "")  # Firecrawl got a listing page
 
+    def test_atlassian_description_from_listings_endpoint(self):
+        sources._atlassian_cache.clear()
+        listing = [{"id": 27432, "overview": "<p>Build things.</p>", "responsibilities": "<ul><li>Own services</li></ul>",
+                    "qualifications": "<p>5 years</p>"}, {"id": 1}]
+        url = "https://www.atlassian.com/company/careers/details/27432"
+        on, off = {"sources": {"undocumented_ats": True}}, {"sources": {}}
+        with mock.patch.object(sources, "_get_json", return_value=listing) as g:
+            with mock.patch.object(sources, "_cfg", return_value=off):
+                self.assertEqual(sources.atlassian_description(url), "")  # opt-in only
+            g.assert_not_called()
+            with mock.patch.object(sources, "_cfg", return_value=on):
+                text = sources.atlassian_description(url)
+                self.assertIn("Own services", text)
+                self.assertEqual(sources.atlassian_description("https://www.atlassian.com/company/careers/details/999"), "")
+                self.assertEqual(sources.atlassian_description("https://x.example/j/1"), "")
+            self.assertEqual(g.call_count, 1)  # one request covers every job in the run
+        sources._atlassian_cache.clear()
+
+    def test_custom_description_uses_atlassian_then_falls_back(self):
+        url = "https://www.atlassian.com/company/careers/details/5"
+        with mock.patch.object(sources, "atlassian_description", return_value=JD), \
+                mock.patch.object(sources, "_get") as g:
+            self.assertEqual(sources.custom_description(url, FakeBudget()), JD)
+            g.assert_not_called()
+        with mock.patch.object(sources, "atlassian_description", side_effect=OSError("down")), \
+                mock.patch.object(sources, "_get", return_value=f"<p>{JD}</p>".encode()):
+            self.assertIn("Requirements", sources.custom_description(url, FakeBudget()))
+
     def test_title_in(self):
         self.assertTrue(sources._title_in("Senior Backend Engineer (Remote)", "We hire a senior backend engineer"))
         self.assertTrue(sources._title_in("Backend Engineer", "backend and engineer skills"))

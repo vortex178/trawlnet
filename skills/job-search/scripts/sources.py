@@ -576,9 +576,31 @@ def _looks_like_jd(text: str) -> bool:
         r"responsibilit|requirement|qualification|years of experience|what you.ll|you will|we.re looking|must have", text, re.I)) >= 2
 
 
+_ATLASSIAN_JOB = re.compile(r"https?://(?:www\.)?atlassian\.com/company/careers/details/(\d+)")
+_atlassian_cache: dict = {}
+
+
+def atlassian_description(url: str) -> str:
+    """Atlassian's career pages are JS-rendered; its listings endpoint (undocumented, so opt-in) carries the full text.
+    Returns "" for other URLs, when the opt-in is off, or when the job is not listed."""
+    m = _ATLASSIAN_JOB.match(url)
+    if not m or not _cfg()["sources"].get("undocumented_ats"):
+        return ""
+    if "jobs" not in _atlassian_cache:  # one request per run covers every Atlassian job
+        _atlassian_cache["jobs"] = _get_json("https://www.atlassian.com/endpoint/careers/listings")
+    job = next((j for j in _atlassian_cache["jobs"] if str(j.get("id")) == m.group(1)), None)
+    return html_to_text("\n".join(job.get(k) or "" for k in ("overview", "responsibilities", "qualifications"))) if job else ""
+
+
 def custom_description(detail_url: str, budget=None) -> str:
     """Full posting text, or "" when none could be obtained (nav/CSS-only pages are never returned as a JD)."""
     text = ""
+    try:
+        text = atlassian_description(detail_url)
+        if _looks_like_jd(text):
+            return text
+    except Exception:
+        pass
     try:
         text = html_to_text(_get(detail_url, timeout=20).decode("utf-8", "ignore"))
     except Exception:

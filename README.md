@@ -99,7 +99,7 @@ pages per day; `run --dry` never spends credits.
 
 ## Compliance
 
-- Public, documented job APIs/feeds by default. Workday/Darwinbox career endpoints and Alignerr are undocumented:
+- Public, documented job APIs/feeds by default. Workday/Darwinbox career endpoints, Atlassian job text and Alignerr are undocumented:
   **opt-in** (`sources.undocumented_ats`, `sources.alignerr`), paced, and may break.
 - Requests identify themselves (`trawlnet/<version>` User-Agent). No CAPTCHA or bot-detection bypass,
   no spoofed browser identity.

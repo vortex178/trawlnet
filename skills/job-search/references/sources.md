@@ -9,6 +9,8 @@
      the page's own Origin/Referer) — the endpoints the public career sites use. Workday is filtered server-side to
      the pack's country (country facet, else location-facet values naming the pack's `country_places`); ≤10 pages
      of 20; descriptions fetched only for shortlisted jobs. Undocumented; may change without notice.
+     Also opt-in: Atlassian job descriptions come from `https://www.atlassian.com/endpoint/careers/listings` (its career pages
+     are JS-rendered); one request per run, only for shortlisted Atlassian jobs.
 2. Indeed connector (optional; claude.ai connector) via the `job-fetcher` (search) and `job-scorer` (details).
    Max 10 results per call, no pagination or date filter (freshness enforced by script on "Posted on").
    Job IDs are session-scoped and the short URLs change per call → never use either as a persistent id;
