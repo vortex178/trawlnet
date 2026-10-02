@@ -8,6 +8,7 @@ import urllib.parse
 from common import html_to_text
 
 from . import net
+from .board import Board
 
 
 def fetch_alignerr(cfg: dict) -> list:
@@ -45,3 +46,6 @@ def alignerr_description(detail_url: str) -> str:
     head = (f"Engagement: {job.get('jobType', '')} ({job.get('salaryType', '')}), AI-training work for Alignerr. "
             f"Listing location: {job.get('location', '')}. First posted: {str(job.get('firstPostDate', ''))[:10]}.\n\n")
     return (head + html_to_text(job.get("htmlLongDescription") or job.get("longDescription") or ""))[:9000]
+
+
+BOARD = Board("alignerr", describe=alignerr_description)  # the feed itself is a config search, not a board

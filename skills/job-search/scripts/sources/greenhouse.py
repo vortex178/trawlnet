@@ -4,6 +4,7 @@ from __future__ import annotations
 from common import html_to_text, parse_date
 
 from . import net
+from .board import Board
 
 
 def fetch_greenhouse(company: dict) -> list:
@@ -21,3 +22,6 @@ def fetch_greenhouse(company: dict) -> list:
             "description": html_to_text(j.get("content")),
         })
     return out
+
+
+BOARD = Board("greenhouse", fetch_greenhouse, link=r"greenhouse\.io/([\w-]+)")

@@ -4,6 +4,7 @@ from __future__ import annotations
 from common import html_to_text, parse_date
 
 from . import net
+from .board import Board
 
 
 def fetch_darwinbox(company: dict) -> list:
@@ -35,3 +36,6 @@ def fetch_darwinbox(company: dict) -> list:
             "description": (f"Experience: {exp}\n\n" if exp else "") + desc,
         })
     return out
+
+
+BOARD = Board("darwinbox", fetch_darwinbox, undocumented=True)

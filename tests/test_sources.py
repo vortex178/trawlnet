@@ -30,7 +30,7 @@ class BoardFetchersTest(unittest.TestCase):
         return out, m.call_args[0][0]
 
     def test_greenhouse(self):
-        out, url = self.fetch(sources.fetch_greenhouse, {"jobs": [{
+        out, url = self.fetch(sources.greenhouse.fetch_greenhouse, {"jobs": [{
             "id": 101, "title": "Backend Engineer", "location": {"name": "Bengaluru, India"},
             "offices": [{"name": "Bengaluru"}, {"name": "Remote"}], "first_published": "2026-09-20T10:00:00-04:00",
             "absolute_url": "https://boards.greenhouse.io/acme/jobs/101", "content": "&lt;p&gt;Build &lt;b&gt;APIs&lt;/b&gt;&lt;/p&gt;"}]})
@@ -47,13 +47,13 @@ class BoardFetchersTest(unittest.TestCase):
                    "salaryRange": {"min": 3000000, "max": 4000000, "currency": "INR", "interval": "year"},
                    "hostedUrl": "https://jobs.lever.co/acme/lv1", "descriptionPlain": "Own the platform.",
                    "lists": [{"text": "Requirements", "content": "<li>Java</li>"}], "additionalPlain": "Apply today."}
-        out, url = self.fetch(sources.fetch_lever, [posting])
+        out, url = self.fetch(sources.lever.fetch_lever, [posting])
         r = out[0]
         self.assertIn("api.lever.co/v0/postings/acme", url)
         self.assertEqual((r["location"], r["remote"], r["posted"]), ("Bengaluru; Remote", True, "2025-09-20"))
         self.assertEqual(r["job_type"], "")
         posting["categories"]["commitment"] = "Contract"
-        self.assertEqual(self.fetch(sources.fetch_lever, [posting])[0][0]["job_type"], "Contract")
+        self.assertEqual(self.fetch(sources.lever.fetch_lever, [posting])[0][0]["job_type"], "Contract")
         self.assertEqual(parse_salary(r["salary_text"], FX), (3_000_000, 4_000_000))
         for part in ("Own the platform.", "Requirements", "- Java", "Apply today."):
             self.assertIn(part, r["description"])
@@ -61,13 +61,13 @@ class BoardFetchersTest(unittest.TestCase):
     def test_lever_regions_and_workplace_types(self):
         hybrid = {"id": "a", "text": "T", "categories": {"location": "Pune"}, "workplaceType": "hybrid"}
         plain = {"id": "b", "text": "T", "categories": {"location": "Pune"}}
-        out, url = self.fetch(sources.fetch_lever, [hybrid, plain], {"name": "Acme", "token": "acme", "region": "eu"})
+        out, url = self.fetch(sources.lever.fetch_lever, [hybrid, plain], {"name": "Acme", "token": "acme", "region": "eu"})
         self.assertIn("api.eu.lever.co", url)
         self.assertEqual([r["remote"] for r in out], [False, None])
         self.assertEqual(out[0]["location"], "Pune")
 
     def test_ashby_skips_unlisted_and_reads_salary(self):
-        out, _ = self.fetch(sources.fetch_ashby, {"jobs": [
+        out, _ = self.fetch(sources.ashby.fetch_ashby, {"jobs": [
             {"id": "a1", "title": "Security Engineer", "location": "Remote - India", "secondaryLocations": [{"location": "Pune"}],
              "isRemote": True, "publishedAt": "2026-09-25T00:00:00.000+00:00", "jobUrl": "https://jobs.ashbyhq.com/acme/a1",
              "descriptionPlain": "Secure things.", "address": {"postalAddress": {"addressCountry": "India"}},
@@ -78,18 +78,18 @@ class BoardFetchersTest(unittest.TestCase):
         self.assertEqual((r["location"], r["remote"], r["region_text"], r["posted"]),
                          ("Remote - India; Pune", True, "India", "2026-09-25"))
         self.assertEqual(r["job_type"], "")
-        ct, _ = self.fetch(sources.fetch_ashby, {"jobs": [{"id": "a3", "title": "T", "employmentType": "Contract"}]})
+        ct, _ = self.fetch(sources.ashby.fetch_ashby, {"jobs": [{"id": "a3", "title": "T", "employmentType": "Contract"}]})
         self.assertEqual(ct[0]["job_type"], "Contract")
         self.assertEqual(parse_salary(r["salary_text"], FX), (3_000_000, 4_000_000))
 
     def test_workable(self):
-        out, _ = self.fetch(sources.fetch_workable, {"jobs": [
+        out, _ = self.fetch(sources.workable.fetch_workable, {"jobs": [
             {"shortcode": "W1", "title": "Java Developer", "telecommuting": True, "locations": [{"city": "Pune", "country": "India"}],
              "published_on": "2026-09-24", "url": "https://apply.workable.com/acme/j/W1/", "description": "<p>Hi</p>"},
             {"shortcode": "W2", "title": "QA", "telecommuting": False, "city": "Delhi", "country": "India"}]})
         self.assertEqual((out[0]["location"], out[0]["remote"], out[0]["description"]), ("Remote; Pune, India", True, "Hi"))
         self.assertEqual((out[1]["location"], out[1]["remote"]), ("Delhi, India", False))
-        ct, _ = self.fetch(sources.fetch_workable, {"jobs": [{"shortcode": "W3", "title": "T", "employment_type": "Contract"}]})
+        ct, _ = self.fetch(sources.workable.fetch_workable, {"jobs": [{"shortcode": "W3", "title": "T", "employment_type": "Contract"}]})
         self.assertEqual((out[0]["job_type"], ct[0]["job_type"]), ("", "Contract"))
 
     def test_smartrecruiters_paginates_and_fetches_description_lazily(self):
@@ -98,7 +98,7 @@ class BoardFetchersTest(unittest.TestCase):
                                                      "ref": f"https://api.smartrecruiters.com/v1/companies/acme/postings/p{i}",
                                                      "location": {"remote": i == 1, "fullLocation": "Pune, India", "country": "in"}}]}
         with mock.patch.object(sources.net, "get_json", side_effect=[page(0), page(1)]) as m:
-            out = sources.fetch_smartrecruiters({"name": "Acme", "token": "acme"})
+            out = sources.smartrecruiters.fetch_smartrecruiters({"name": "Acme", "token": "acme"})
         self.assertEqual([c[0][0].rsplit("offset=", 1)[1] for c in m.call_args_list], ["0", "100"])
         self.assertEqual([(r["title"], r["remote"], r["location"]) for r in out],
                          [("Engineer 0", False, "Pune, India"), ("Engineer 1", True, "Remote; Pune, India")])
@@ -106,11 +106,11 @@ class BoardFetchersTest(unittest.TestCase):
         self.assertEqual(out[0]["job_type"], "")
         with mock.patch.object(sources.net, "get_json", return_value={"totalFound": 1, "content": [
                 {"id": "c1", "name": "T", "typeOfEmployment": {"id": "contract", "label": "Contract"}}]}):
-            self.assertEqual(sources.fetch_smartrecruiters({"name": "Acme", "token": "acme"})[0]["job_type"], "contract Contract")
+            self.assertEqual(sources.smartrecruiters.fetch_smartrecruiters({"name": "Acme", "token": "acme"})[0]["job_type"], "contract Contract")
         detail = {"jobAd": {"sections": {"jobDescription": {"title": "Job Description", "text": "<p>Do things</p>"},
                                          "qualifications": {"title": "Qualifications", "text": "<ul><li>Java</li></ul>"}}}}
         with mock.patch.object(sources.net, "get_json", return_value=detail):
-            text = sources.smartrecruiters_description(out[0]["detail_url"])
+            text = sources.smartrecruiters.smartrecruiters_description(out[0]["detail_url"])
         self.assertIn("Job Description\nDo things", text)
         self.assertIn("Qualifications\n- Java", text)
 
@@ -119,7 +119,7 @@ class WorkdayDarwinboxTest(unittest.TestCase):
     CO = {"name": "Litware", "token": "litware", "host": "litware.wd3.myworkdayjobs.com", "site": "Careers"}
 
     def test_country_facet_variants(self):
-        f = sources._workday_country_facet
+        f = sources.workday._workday_country_facet
         self.assertEqual(f([{"facetParameter": "locationCountry",
                              "values": [{"id": "c1", "descriptor": "India"}, {"id": "c2", "descriptor": "Germany"}]}], "india"),
                          {"locationCountry": ["c1"]})
@@ -147,7 +147,7 @@ class WorkdayDarwinboxTest(unittest.TestCase):
                                                 "values": [{"id": "c1", "descriptor": "India"}]}], "jobPostings": []}
             return {"total": 1, "jobPostings": [self.posting(1), self.posting(2, "Remote, India")]}
         with mock.patch.object(sources.net, "post_json", side_effect=post):
-            out = sources.fetch_workday(self.CO)
+            out = sources.workday.fetch_workday(self.CO)
         self.assertEqual(bodies[1]["appliedFacets"], {"locationCountry": ["c1"]})
         a, b = out
         self.assertEqual((a["location"], a["region_text"], a["posted"], a["remote"]),
@@ -159,13 +159,13 @@ class WorkdayDarwinboxTest(unittest.TestCase):
     def test_fetch_without_facet_reuses_first_page(self):
         with mock.patch.object(sources.net, "post_json",
                                return_value={"total": 1, "facets": [], "jobPostings": [self.posting(1, "Pune, India")]}) as m:
-            out = sources.fetch_workday(self.CO)
+            out = sources.workday.fetch_workday(self.CO)
         self.assertEqual(m.call_count, 1)
         self.assertEqual((out[0]["location"], out[0]["region_text"]), ("Pune, India", ""))
 
     def test_workday_description(self):
         with mock.patch.object(sources.net, "get_json", return_value={"jobPostingInfo": {"jobDescription": "<p>Secure the code</p>"}}):
-            self.assertEqual(sources.workday_description("https://x/y"), "Secure the code")
+            self.assertEqual(sources.workday.workday_description("https://x/y"), "Secure the code")
 
     def test_darwinbox_paginates(self):
         def row(i):
@@ -177,7 +177,7 @@ class WorkdayDarwinboxTest(unittest.TestCase):
             calls.append((url, body["page"], headers["Origin"]))
             return {"data": [row(body["page"])], "job_counts": 2}
         with mock.patch.object(sources.net, "post_json", side_effect=post):
-            out = sources.fetch_darwinbox({"name": "Proseware", "token": "proseware"})
+            out = sources.darwinbox.fetch_darwinbox({"name": "Proseware", "token": "proseware"})
         self.assertEqual([c[1] for c in calls], [1, 2])
         self.assertIn("proseware.darwinbox.in", calls[0][0])
         self.assertEqual(calls[0][2], "https://proseware.darwinbox.in")
@@ -243,12 +243,12 @@ class FeedFetchersTest(unittest.TestCase):
                                                 "firstPostDate": "2026-09-01T00:00:00Z", "htmlLongDescription": "<p>Label data</p>"}}}}
         page = f'<html><script id="__NEXT_DATA__" type="application/json">{json.dumps(data)}</script></html>'.encode()
         with mock.patch.object(sources.net, "get", return_value=page):
-            text = sources.alignerr_description("https://www.alignerr.com/jobs/j1")
+            text = sources.alignerr.alignerr_description("https://www.alignerr.com/jobs/j1")
         self.assertIn("Engagement: Contract (hourly)", text)
         self.assertIn("First posted: 2026-09-01", text)
         self.assertTrue(text.endswith("Label data"))
         with mock.patch.object(sources.net, "get", return_value=b"<html>no data</html>"):
-            self.assertIn("Engagement:", sources.alignerr_description("https://x"))
+            self.assertIn("Engagement:", sources.alignerr.alignerr_description("https://x"))
 
 
 class AdzunaTest(unittest.TestCase):

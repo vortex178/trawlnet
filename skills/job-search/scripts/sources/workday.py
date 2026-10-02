@@ -7,6 +7,7 @@ import re
 from common import html_to_text
 
 from . import net
+from .board import Board
 
 
 def _workday_base(c: dict) -> str:
@@ -91,3 +92,6 @@ def fetch_workday(company: dict, country: str | None = None, max_pages: int = 10
 def workday_description(detail_url: str) -> str:
     info = net.get_json(detail_url).get("jobPostingInfo") or {}
     return html_to_text(info.get("jobDescription"))
+
+
+BOARD = Board("workday", fetch_workday, describe=workday_description, undocumented=True)

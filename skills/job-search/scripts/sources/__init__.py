@@ -9,59 +9,36 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-import urllib.error
 import urllib.parse
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-from common import UA, html_to_text
+from common import html_to_text
 
-from . import net
+from . import alignerr, ashby, atlassian, darwinbox, greenhouse, lever, net, smartrecruiters, workable, workday
 from .generic import _custom_records, _job_links, _looks_like_jd, _text_titles, fetch_custom_firecrawl, fetch_custom_free  # noqa: F401
-from .atlassian import _ATLASSIAN_CAREERS, _atlassian_cache, atlassian_description, fetch_atlassian  # noqa: F401
-from .workday import _workday_country_facet, _workday_posted, fetch_workday, workday_description  # noqa: F401
-from .darwinbox import fetch_darwinbox
-from .greenhouse import fetch_greenhouse
-from .lever import fetch_lever
-from .ashby import fetch_ashby
-from .workable import fetch_workable
-from .smartrecruiters import fetch_smartrecruiters, smartrecruiters_description
 from .adzuna import fetch_adzuna
-from .alignerr import fetch_alignerr, alignerr_description
+from .alignerr import fetch_alignerr
 from .wwr import fetch_wwr
 from .remoteok import fetch_remoteok
 from .hn import fetch_hn
 
-
-_WORKABLE_JOB = re.compile(r"https?://apply\.workable\.com/(?:([\w-]+)/)?j/(\w+)")
-
-
-def workable_description(url: str) -> str:
-    """Description of a Workable job linked as apply.workable.com/[<account>/]j/<shortcode> (careers pages that embed the
-    board). The bare shortlink redirects to /<account>/j/<shortcode>; the account's public widget API has the text."""
-    m = _WORKABLE_JOB.match(url)
-    if not m:
-        return ""
-    account, code = m.groups()
-    if not account:
-        try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20) as r:
-                final = r.geturl()
-        except urllib.error.HTTPError as e:  # a bot-check page still carries the redirected URL
-            final = e.geturl()
-        m = _WORKABLE_JOB.match(final)
-        account = m.group(1) if m else None
-    if not account:
-        return ""
-    return next((j["description"] for j in fetch_workable({"name": "", "token": account}) if j["source_id"] == code), "")
+# Every board that takes part in dispatch, in lookup order.
+BOARDS = {b.name: b for b in (atlassian.BOARD, ashby.BOARD, greenhouse.BOARD, lever.BOARD, workable.BOARD,
+                              smartrecruiters.BOARD, workday.BOARD, darwinbox.BOARD, alignerr.BOARD)}
+# companies[].ats -> fetcher for boards addressed by token; token-board fetches go through this dict, not BOARDS
+# (discover/wwr_verify use it, tests patch it)
+ATS_FETCHERS = {b.name: b.fetch for b in BOARDS.values() if b.fetch and not b.careers}
+UNDOCUMENTED_ATS = {n for n in ATS_FETCHERS if BOARDS[n].undocumented}
 
 
 def custom_description(detail_url: str, budget=None) -> str:
     """Full posting text, or "" when none could be obtained (nav/CSS-only pages are never returned as a JD)."""
     text = ""
-    for resolver in (atlassian_description, workable_description):  # known JS-rendered/embedded career sites
+    for board in BOARDS.values():  # known JS-rendered/embedded career sites
+        if not board.resolve:
+            continue
         try:
-            text = resolver(detail_url)
+            text = board.resolve(detail_url)
         except Exception:
             text = ""
         if text:  # structured sources: trusted as is, no keyword heuristics
@@ -83,12 +60,11 @@ def _title_in(title: str, text: str) -> bool:
 
 def _ats_job(url: str, title: str, company: str):
     """If url points at a supported ATS board, return the matching job's description via its API."""
-    for ats, rx in (("ashby", r"jobs\.ashbyhq\.com/([\w.-]+)"), ("greenhouse", r"greenhouse\.io/([\w-]+)"),
-                    ("lever", r"jobs\.lever\.co/([\w.-]+)"), ("workable", r"apply\.workable\.com/(?!j/)([\w-]+)")):
-        m = re.search(rx, url)
+    for board in BOARDS.values():
+        m = board.link and re.search(board.link, url)
         if m:
             try:
-                jobs = ATS_FETCHERS[ats]({"name": company, "token": m.group(1)})
+                jobs = ATS_FETCHERS[board.name]({"name": company, "token": m.group(1)})
             except Exception:
                 return None
             best = [j for j in jobs if _title_in(title, j["title"]) or _title_in(j["title"], title)]
@@ -117,24 +93,15 @@ def enrich_short_description(rec: dict, budget=None) -> str:
 
 def lazy_description(rec: dict, budget=None) -> str:
     """Descriptions not included in list endpoints; fetched only for shortlisted jobs."""
-    if rec["source"] == "smartrecruiters":
-        return smartrecruiters_description(rec["detail_url"])
-    if rec["source"] == "workday":
-        return workday_description(rec["detail_url"])
+    board = BOARDS.get(rec["source"])
+    if board and board.describe:
+        return board.describe(rec["detail_url"])
     if rec["source"] == "custom":
         return custom_description(rec["detail_url"], budget)
-    if rec["source"] == "alignerr":
-        return alignerr_description(rec["detail_url"])
     if rec["source"] == "adzuna":  # full posting on the Adzuna details page; keep only if it contains the title
         full = custom_description(rec["detail_url"], budget)
         return full if _title_in(rec["title"], full) else ""
     return ""
-
-
-UNDOCUMENTED_ATS = {"workday", "darwinbox"}
-ATS_FETCHERS = {"greenhouse": fetch_greenhouse, "lever": fetch_lever, "ashby": fetch_ashby,
-                "workable": fetch_workable, "smartrecruiters": fetch_smartrecruiters,
-                "workday": fetch_workday, "darwinbox": fetch_darwinbox}
 
 
 GONE_CODES = (404, 410)  # "board does not exist"; timeouts, 429 and 5xx are transient and never count
@@ -155,6 +122,12 @@ def is_dead(c: dict) -> bool:
     return c.get("gone_days", 0) >= DEAD_AFTER
 
 
+def _site_fetcher(careers_url: str, undocumented: bool):
+    """A board's own fetcher for a custom careers_url it serves (Atlassian), else the generic scraper."""
+    return next((b.fetch for b in BOARDS.values() if b.careers and b.careers.match(careers_url)
+                 and (undocumented or not b.undocumented)), fetch_custom_free)
+
+
 def fetch_all(cfg: dict, companies: list, budget=None) -> tuple:
     """Fetch WWR feeds + ATS boards in parallel. Returns (records, per-source counts, errors)."""
     tasks = []
@@ -168,7 +141,7 @@ def fetch_all(cfg: dict, companies: list, budget=None) -> tuple:
         tasks.append(("alignerr", fetch_alignerr, cfg))
     if cfg["sources"].get("adzuna"):
         tasks.append(("adzuna", fetch_adzuna, cfg))
-    undocumented = cfg["sources"].get("undocumented_ats", False)  # Workday/Darwinbox career-site endpoints: opt-in
+    undocumented = cfg["sources"].get("undocumented_ats", False)  # Workday/Darwinbox/Atlassian endpoints: opt-in
     if cfg["sources"].get("ats"):
         for c in companies:
             fn = ATS_FETCHERS.get(c.get("ats"))
@@ -178,8 +151,7 @@ def fetch_all(cfg: dict, companies: list, budget=None) -> tuple:
                 tasks.append((f"{c['ats']}:{c['name']}", fn, c))
     customs = [c for c in companies if c.get("ats") == "custom" and c.get("careers_url") and c.get("active", True)] \
         if cfg["sources"].get("ats") else []
-    tasks += [(f"custom:{c['name']}", fetch_atlassian if undocumented and _ATLASSIAN_CAREERS.match(c["careers_url"])
-               else fetch_custom_free, c) for c in customs]
+    tasks += [(f"custom:{c['name']}", _site_fetcher(c["careers_url"], undocumented), c) for c in customs]
     records, counts, errors = [], {}, []
     with ThreadPoolExecutor(max_workers=8) as ex:
         futs = {ex.submit(fn, arg): (label, arg) for label, fn, arg in tasks}

@@ -15,6 +15,12 @@ JD = ("Responsibilities: build services. Requirements: 3 years of experience wit
       "Qualifications include Kafka. ") * 8
 
 
+def board(name, **fields):
+    """Patch one registry entry (describe/resolve/careers fetch read sources.BOARDS; token-board fetches go through
+    sources.ATS_FETCHERS, so patch that dict for those)."""
+    return mock.patch.dict(sources.BOARDS, {name: sources.BOARDS[name]._replace(**fields)})
+
+
 class FakeBudget:
     def __init__(self, pages=None, left=10):
         self.pages, self._left, self.scraped, self.enabled = pages or {}, left, [], True
@@ -106,25 +112,25 @@ class DescriptionTest(unittest.TestCase):
             self.assertEqual(sources.custom_description("https://x.example/j/3", b), "")  # Firecrawl got a listing page
 
     def test_atlassian_description_from_listings_endpoint(self):
-        sources._atlassian_cache.clear()
+        sources.atlassian._atlassian_cache.clear()
         listing = [{"id": 27432, "overview": "<p>Build things.</p>", "responsibilities": "<ul><li>Own services</li></ul>",
                     "qualifications": "<p>5 years</p>"}, {"id": 1}]
         url = "https://www.atlassian.com/company/careers/details/27432"
         on, off = {"sources": {"undocumented_ats": True}}, {"sources": {}}
         with mock.patch.object(sources.net, "get_json", return_value=listing) as g:
             with mock.patch.object(sources.net, "cfg", return_value=off):
-                self.assertEqual(sources.atlassian_description(url), "")  # opt-in only
+                self.assertEqual(sources.atlassian.atlassian_description(url), "")  # opt-in only
             g.assert_not_called()
             with mock.patch.object(sources.net, "cfg", return_value=on):
-                text = sources.atlassian_description(url)
+                text = sources.atlassian.atlassian_description(url)
                 self.assertIn("Own services", text)
-                self.assertEqual(sources.atlassian_description("https://www.atlassian.com/company/careers/details/999"), "")
-                self.assertEqual(sources.atlassian_description("https://x.example/j/1"), "")
+                self.assertEqual(sources.atlassian.atlassian_description("https://www.atlassian.com/company/careers/details/999"), "")
+                self.assertEqual(sources.atlassian.atlassian_description("https://x.example/j/1"), "")
             self.assertEqual(g.call_count, 1)  # one request covers every job in the run
-        sources._atlassian_cache.clear()
+        sources.atlassian._atlassian_cache.clear()
 
     def test_atlassian_fetcher_maps_the_whole_board(self):
-        sources._atlassian_cache.clear()
+        sources.atlassian._atlassian_cache.clear()
         listing = [{"id": 27432, "title": "Senior Backend Software Engineer", "type": "Full-Time",
                     "locations": ["Bengaluru - India -   Bengaluru,  560071 India", "Remote - India - Remote", "Remote - Remote"],
                     "overview": "<p>Build things.</p>", "responsibilities": "<ul><li>Own services</li></ul>",
@@ -133,10 +139,10 @@ class DescriptionTest(unittest.TestCase):
                    {"id": 8, "title": "Bare"}]
         co = {"name": "Atlassian", "ats": "custom", "careers_url": "https://www.atlassian.com/company/careers/all-jobs"}
         with mock.patch.object(sources.net, "get_json", return_value=listing) as g:
-            out = sources.fetch_atlassian(co)
-            sources.fetch_atlassian(co)
+            out = sources.atlassian.fetch_atlassian(co)
+            sources.atlassian.fetch_atlassian(co)
             self.assertEqual(g.call_count, 1)
-        sources._atlassian_cache.clear()
+        sources.atlassian._atlassian_cache.clear()
         a, b, c = out
         self.assertEqual((a["source"], a["company"], a["title"], a["url"], a["job_type"]),
                          ("custom", "Atlassian", "Senior Backend Software Engineer",
@@ -147,21 +153,21 @@ class DescriptionTest(unittest.TestCase):
         self.assertEqual((c["location"], c["job_type"]), ("", ""))
 
     def test_fetch_all_uses_the_atlassian_listing_only_when_opted_in(self):
-        sources._atlassian_cache.clear()
+        sources.atlassian._atlassian_cache.clear()
         co = [{"name": "Atlassian", "ats": "custom", "careers_url": "https://www.atlassian.com/company/careers/all-jobs"}]
         listing = [{"id": 1, "title": "Backend Engineer", "locations": ["Bengaluru - India - X"], "overview": "<p>x</p>"}]
         for opt_in, expect in ((True, "fetch_atlassian"), (False, "fetch_custom_free")):
-            with mock.patch.object(sources, "fetch_atlassian", return_value=[]) as atl, \
-                    mock.patch.object(sources, "fetch_custom_free", return_value=[]) as free:
+            atl = mock.Mock(return_value=[])
+            with board("atlassian", fetch=atl), mock.patch.object(sources, "fetch_custom_free", return_value=[]) as free:
                 sources.fetch_all({"sources": {"ats": True, "undocumented_ats": opt_in}}, co)
             self.assertEqual({"fetch_atlassian": atl, "fetch_custom_free": free}[expect].call_count, 1)
         with mock.patch.object(sources.net, "get_json", return_value=listing):
             recs, counts, errors = sources.fetch_all({"sources": {"ats": True, "undocumented_ats": True}}, co, FakeBudget())
-        sources._atlassian_cache.clear()
+        sources.atlassian._atlassian_cache.clear()
         self.assertEqual((counts, errors, len(recs)), ({"custom:Atlassian": 1}, [], 1))
 
     def test_atlassian_endpoint_failure_falls_back_to_firecrawl(self):
-        sources._atlassian_cache.clear()
+        sources.atlassian._atlassian_cache.clear()
         co = [{"name": "Atlassian", "ats": "custom", "careers_url": "https://www.atlassian.com/company/careers/all-jobs"}]
         b = FakeBudget({co[0]["careers_url"]: "[Backend Engineer](/company/careers/details/9)"})
         with mock.patch.object(sources.net, "get_json", side_effect=OSError("down")):
@@ -180,40 +186,46 @@ class DescriptionTest(unittest.TestCase):
 
     def test_custom_description_uses_atlassian_then_falls_back(self):
         url = "https://www.atlassian.com/company/careers/details/5"
-        with mock.patch.object(sources, "atlassian_description", return_value=JD), \
+        with board("atlassian", resolve=mock.Mock(return_value=JD)), \
                 mock.patch.object(sources.net, "get") as g:
             self.assertEqual(sources.custom_description(url, FakeBudget()), JD)
             g.assert_not_called()
-        with mock.patch.object(sources, "atlassian_description", return_value="Short but structured"):
+        with board("atlassian", resolve=mock.Mock(return_value="Short but structured")):
             self.assertEqual(sources.custom_description(url, FakeBudget()), "Short but structured")  # resolver text is trusted
-        with mock.patch.object(sources, "atlassian_description", side_effect=OSError("down")), \
+        with board("atlassian", resolve=mock.Mock(side_effect=OSError("down"))), \
                 mock.patch.object(sources.net, "get", return_value=f"<p>{JD}</p>".encode()):
             self.assertIn("Requirements", sources.custom_description(url, FakeBudget()))
 
     def test_workable_description_by_account_and_shortlink(self):
         jobs = [{"source_id": "ABC123", "description": "Workable JD"}, {"source_id": "ZZZ", "description": "other"}]
-        with mock.patch.object(sources, "fetch_workable", return_value=jobs) as fw:
-            self.assertEqual(sources.workable_description("https://apply.workable.com/acme-co/j/ABC123/"), "Workable JD")
+        with mock.patch.object(sources.workable, "fetch_workable", return_value=jobs) as fw:
+            self.assertEqual(sources.workable.workable_description("https://apply.workable.com/acme-co/j/ABC123/"), "Workable JD")
             fw.assert_called_with({"name": "", "token": "acme-co"})
-            self.assertEqual(sources.workable_description("https://apply.workable.com/acme-co/j/MISSING"), "")
-            self.assertEqual(sources.workable_description("https://x.example/j/ABC123"), "")
+            self.assertEqual(sources.workable.workable_description("https://apply.workable.com/acme-co/j/MISSING"), "")
+            self.assertEqual(sources.workable.workable_description("https://x.example/j/ABC123"), "")
 
             class Resp:
                 def __init__(self, url): self.url = url
                 def geturl(self): return self.url
                 def __enter__(self): return self
                 def __exit__(self, *a): return False
-            with mock.patch.object(sources.urllib.request, "urlopen", return_value=Resp("https://apply.workable.com/acme-co/j/ABC123")):
-                self.assertEqual(sources.workable_description("https://apply.workable.com/j/ABC123"), "Workable JD")
+            with mock.patch.object(sources.workable.urllib.request, "urlopen", return_value=Resp("https://apply.workable.com/acme-co/j/ABC123")):
+                self.assertEqual(sources.workable.workable_description("https://apply.workable.com/j/ABC123"), "Workable JD")
             err = urllib.error.HTTPError("https://apply.workable.com/acme-co/j/ABC123", 403, "blocked", {}, io.BytesIO(b""))
-            with mock.patch.object(sources.urllib.request, "urlopen", side_effect=err):
-                self.assertEqual(sources.workable_description("https://apply.workable.com/j/ABC123"), "Workable JD")
-            with mock.patch.object(sources.urllib.request, "urlopen", return_value=Resp("https://apply.workable.com/")):
-                self.assertEqual(sources.workable_description("https://apply.workable.com/j/ABC123"), "")  # no account found
+            with mock.patch.object(sources.workable.urllib.request, "urlopen", side_effect=err):
+                self.assertEqual(sources.workable.workable_description("https://apply.workable.com/j/ABC123"), "Workable JD")
+            with mock.patch.object(sources.workable.urllib.request, "urlopen", return_value=Resp("https://apply.workable.com/")):
+                self.assertEqual(sources.workable.workable_description("https://apply.workable.com/j/ABC123"), "")  # no account found
 
     def test_ats_job_ignores_workable_shortlink_as_account(self):
         with mock.patch.dict(sources.ATS_FETCHERS, {"workable": mock.Mock(side_effect=AssertionError("j is not an account"))}):
             self.assertIsNone(sources._ats_job("https://apply.workable.com/j/ABC123", "Backend Engineer", "Acme"))
+
+    def test_link_boards_are_documented_token_boards(self):
+        for b in sources.BOARDS.values():  # _ats_job fetches a link match through ATS_FETCHERS with no opt-in check
+            if b.link:
+                self.assertIn(b.name, sources.ATS_FETCHERS)
+                self.assertFalse(b.undocumented, b.name)
 
     def test_title_in(self):
         self.assertTrue(sources._title_in("Senior Backend Engineer (Remote)", "We hire a senior backend engineer"))
@@ -252,9 +264,9 @@ class DescriptionTest(unittest.TestCase):
             self.assertEqual(sources.enrich_short_description(rec), rec["description"])
 
     def test_lazy_description_dispatch(self):
-        for source, fn in [("smartrecruiters", "smartrecruiters_description"), ("workday", "workday_description"),
-                           ("alignerr", "alignerr_description")]:
-            with mock.patch.object(sources, fn, return_value="D") as m:
+        for source in ("smartrecruiters", "workday", "alignerr"):
+            m = mock.Mock(return_value="D")
+            with board(source, describe=m):
                 self.assertEqual(sources.lazy_description({"source": source, "detail_url": "u"}), "D")
             m.assert_called_once_with("u")
         with mock.patch.object(sources, "custom_description", return_value=JD) as m:

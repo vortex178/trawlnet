@@ -4,6 +4,7 @@ from __future__ import annotations
 from common import html_to_text, parse_date
 
 from . import net
+from .board import Board
 
 
 def fetch_lever(company: dict) -> list:
@@ -30,3 +31,6 @@ def fetch_lever(company: dict) -> list:
             "url": j.get("hostedUrl", ""), "description": desc[:9000],
         })
     return out
+
+
+BOARD = Board("lever", fetch_lever, link=r"jobs\.lever\.co/([\w.-]+)")

@@ -4,6 +4,7 @@ from __future__ import annotations
 from common import parse_date
 
 from . import net
+from .board import Board
 
 
 def fetch_ashby(company: dict) -> list:
@@ -27,3 +28,6 @@ def fetch_ashby(company: dict) -> list:
             "url": j.get("jobUrl", ""), "description": (j.get("descriptionPlain") or "")[:9000],
         })
     return out
+
+
+BOARD = Board("ashby", fetch_ashby, link=r"jobs\.ashbyhq\.com/([\w.-]+)")

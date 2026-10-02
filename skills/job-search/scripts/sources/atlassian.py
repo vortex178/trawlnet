@@ -7,6 +7,7 @@ import re
 from common import html_to_text
 
 from . import net
+from .board import Board
 
 
 _ATLASSIAN_JOB = re.compile(r"https?://(?:www\.)?atlassian\.com/company/careers/details/(\d+)")
@@ -53,3 +54,7 @@ def fetch_atlassian(company: dict) -> list:
             "job_type": j.get("type") or "", "url": url, "description": _atlassian_text(j)[:9000], "detail_url": url,
         })
     return out
+
+
+BOARD = Board("atlassian", fetch_atlassian, resolve=atlassian_description, careers=_ATLASSIAN_CAREERS,
+              undocumented=True)

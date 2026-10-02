@@ -50,11 +50,11 @@ class DateTest(unittest.TestCase):
         self.assertIsNone(parse_date("soon"))
 
     def test_workday_relative(self):
-        self.assertEqual(sources._workday_posted("Posted Today"), ago(0))
-        self.assertEqual(sources._workday_posted("Posted Yesterday"), ago(1))
-        self.assertEqual(sources._workday_posted("Posted 3 Days Ago"), ago(3))
-        self.assertEqual(sources._workday_posted("Posted 30+ Days Ago"), ago(31))
-        self.assertIsNone(sources._workday_posted(""))
+        self.assertEqual(sources.workday._workday_posted("Posted Today"), ago(0))
+        self.assertEqual(sources.workday._workday_posted("Posted Yesterday"), ago(1))
+        self.assertEqual(sources.workday._workday_posted("Posted 3 Days Ago"), ago(3))
+        self.assertEqual(sources.workday._workday_posted("Posted 30+ Days Ago"), ago(31))
+        self.assertIsNone(sources.workday._workday_posted(""))
 
 
 class NormalizeTest(unittest.TestCase):

@@ -4,6 +4,7 @@ from __future__ import annotations
 from common import html_to_text, parse_date
 
 from . import net
+from .board import Board
 
 
 def fetch_smartrecruiters(company: dict) -> list:
@@ -35,3 +36,6 @@ def smartrecruiters_description(detail_url: str) -> str:
     parts = [f"{(secs.get(k) or {}).get('title', '')}\n{html_to_text((secs.get(k) or {}).get('text'))}"
              for k in ("jobDescription", "qualifications", "additionalInformation")]
     return "\n\n".join(p for p in parts if p.strip())[:9000]
+
+
+BOARD = Board("smartrecruiters", fetch_smartrecruiters, describe=smartrecruiters_description)
