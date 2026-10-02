@@ -7,7 +7,7 @@ resumes, emails, sheet ids, connector UUIDs, or real run output. Personal data l
 ## Layout
 - `skills/job-search/SKILL.md` — the orchestration Claude follows; `references/` loaded on demand.
 - `skills/job-search/scripts/` — stdlib + PyYAML engine. `common.py` (paths, config + pack merge, parsing),
-  `jobsearch.py` (plan/feeds/filter/decide/shortlist/publish/…), `sources.py` (fetchers), `db.py` (SQLite state +
+  `jobsearch.py` (plan/feeds/filter/decide/shortlist/publish/…), `sources/` (fetchers; package), `db.py` (SQLite state +
   migrations), `tracker.py` (csv/gsheets), `firecrawl.py` (credit budget), `discover.py`, `wwr_verify.py`,
   `setup.py` (stdlib only: init/link/env/doctor).
 - `templates/` — rendered into a data folder by `setup.py` (config, preferences, CLAUDE.md, agents).
