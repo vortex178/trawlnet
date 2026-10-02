@@ -79,7 +79,7 @@ class HNTest(unittest.TestCase):
         item = {"children": [{"id": i, "text": t, "created_at": story["hits"][0]["created_at"]}
                              for i, t in enumerate(comments, 100)]}
         cfg = {"pack": {"country_places": ["india", "bengaluru", "bangalore"]}}
-        with mock.patch.object(sources, "_get_json", side_effect=[story, item]):
+        with mock.patch.object(sources.net, "get_json", side_effect=[story, item]):
             return sources.fetch_hn(cfg)
 
     def test_header_parsing(self):

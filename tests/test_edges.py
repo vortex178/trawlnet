@@ -98,10 +98,10 @@ class HttpWrappersTest(unittest.TestCase):
         return r
 
     def test_get_get_json_and_post_json(self):
-        with mock.patch.object(sources.urllib.request, "urlopen", return_value=self.response(b'{"a": 1}')) as uo:
-            self.assertEqual(sources._get("https://x.example"), b'{"a": 1}')
-            self.assertEqual(sources._get_json("https://x.example"), {"a": 1})
-            self.assertEqual(sources._post_json("https://x.example", {"q": 1}, {"X-Test": "1"}), {"a": 1})
+        with mock.patch.object(sources.net.urllib.request, "urlopen", return_value=self.response(b'{"a": 1}')) as uo:
+            self.assertEqual(sources.net.get("https://x.example"), b'{"a": 1}')
+            self.assertEqual(sources.net.get_json("https://x.example"), {"a": 1})
+            self.assertEqual(sources.net.post_json("https://x.example", {"q": 1}, {"X-Test": "1"}), {"a": 1})
         req = uo.call_args[0][0]
         self.assertEqual(json.loads(req.data), {"q": 1})
         self.assertEqual(req.get_header("X-test"), "1")
@@ -112,10 +112,10 @@ class HnSkipsTest(unittest.TestCase):
     CFG = {"pack": {"country_places": ["india"]}}
 
     def test_no_story_or_stale_thread(self):
-        with mock.patch.object(sources, "_get_json", return_value={"hits": [{"title": "Something else"}]}):
+        with mock.patch.object(sources.net, "get_json", return_value={"hits": [{"title": "Something else"}]}):
             self.assertEqual(sources.fetch_hn(self.CFG), [])
         old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        with mock.patch.object(sources, "_get_json",
+        with mock.patch.object(sources.net, "get_json",
                                return_value={"hits": [{"title": "Who is hiring?", "objectID": "1", "created_at": old}]}):
             self.assertEqual(sources.fetch_hn(self.CFG), [])
 
@@ -124,7 +124,7 @@ class HnSkipsTest(unittest.TestCase):
         story = {"hits": [{"title": "Who is hiring?", "objectID": "1", "created_at": now}]}
         texts = [None, "Single header only", "Backend Engineer | Remote", "Acme | Backend Engineer | Remote"]
         item = {"children": [{"id": i, "text": t, "created_at": now} for i, t in enumerate(texts, 1)]}
-        with mock.patch.object(sources, "_get_json", side_effect=[story, item]):
+        with mock.patch.object(sources.net, "get_json", side_effect=[story, item]):
             out = sources.fetch_hn(self.CFG)
         self.assertEqual([(r["company"], r["title"]) for r in out], [("Acme", "Backend Engineer")])
 

@@ -33,7 +33,7 @@ class CustomFreeTest(unittest.TestCase):
         html = b"""<nav><a href="/about">About us</a><a href="/openings">All openings</a></nav>
         <a href="/openings/42"><h3>Senior Software Engineer</h3><p>Bengaluru, India - full time role</p></a>
         <a href="https://jobs.lever.co/adventure/abc-123">Backend Developer</a>"""
-        with mock.patch.object(sources, "_get", return_value=html):
+        with mock.patch.object(sources.net, "get", return_value=html):
             out = sources.fetch_custom_free(CO)
         self.assertEqual([(r["title"], r["url"]) for r in out], [
             ("Senior Software Engineer", "https://careers.adventure-works.example/openings/42"),
@@ -87,20 +87,20 @@ class CustomFirecrawlTest(unittest.TestCase):
 class DescriptionTest(unittest.TestCase):
     def test_custom_description_free_when_it_looks_like_a_jd(self):
         b = FakeBudget()
-        with mock.patch.object(sources, "_get", return_value=f"<p>{JD}</p>".encode()):
+        with mock.patch.object(sources.net, "get", return_value=f"<p>{JD}</p>".encode()):
             self.assertIn("Requirements", sources.custom_description("https://x.example/j/1", b))
         self.assertEqual(b.scraped, [])
 
     def test_custom_description_falls_back_to_firecrawl(self):
         b = FakeBudget({"https://x.example/j/1": "# Full JD\n" + JD})
-        with mock.patch.object(sources, "_get", return_value=b"<html><nav>Home</nav></html>"):
+        with mock.patch.object(sources.net, "get", return_value=b"<html><nav>Home</nav></html>"):
             self.assertTrue(sources.custom_description("https://x.example/j/1", b).startswith("# Full JD"))
-        with mock.patch.object(sources, "_get", side_effect=OSError("boom")):
+        with mock.patch.object(sources.net, "get", side_effect=OSError("boom")):
             self.assertEqual(sources.custom_description("https://x.example/j/2", None), "")
 
     def test_custom_description_never_returns_page_chrome(self):
         nav = b"<html><style>.a{color:red}</style><nav>Home About Careers</nav></html>"
-        with mock.patch.object(sources, "_get", return_value=nav):
+        with mock.patch.object(sources.net, "get", return_value=nav):
             self.assertEqual(sources.custom_description("https://x.example/j/3", FakeBudget()), "")  # no Firecrawl text
             b = FakeBudget({"https://x.example/j/3": "# Careers\nSee all openings"})
             self.assertEqual(sources.custom_description("https://x.example/j/3", b), "")  # Firecrawl got a listing page
@@ -111,11 +111,11 @@ class DescriptionTest(unittest.TestCase):
                     "qualifications": "<p>5 years</p>"}, {"id": 1}]
         url = "https://www.atlassian.com/company/careers/details/27432"
         on, off = {"sources": {"undocumented_ats": True}}, {"sources": {}}
-        with mock.patch.object(sources, "_get_json", return_value=listing) as g:
-            with mock.patch.object(sources, "_cfg", return_value=off):
+        with mock.patch.object(sources.net, "get_json", return_value=listing) as g:
+            with mock.patch.object(sources.net, "cfg", return_value=off):
                 self.assertEqual(sources.atlassian_description(url), "")  # opt-in only
             g.assert_not_called()
-            with mock.patch.object(sources, "_cfg", return_value=on):
+            with mock.patch.object(sources.net, "cfg", return_value=on):
                 text = sources.atlassian_description(url)
                 self.assertIn("Own services", text)
                 self.assertEqual(sources.atlassian_description("https://www.atlassian.com/company/careers/details/999"), "")
@@ -132,7 +132,7 @@ class DescriptionTest(unittest.TestCase):
                    {"id": 7, "title": "Contract Engineer", "type": "Contract", "locations": ["Canada -     Canada"]},
                    {"id": 8, "title": "Bare"}]
         co = {"name": "Atlassian", "ats": "custom", "careers_url": "https://www.atlassian.com/company/careers/all-jobs"}
-        with mock.patch.object(sources, "_get_json", return_value=listing) as g:
+        with mock.patch.object(sources.net, "get_json", return_value=listing) as g:
             out = sources.fetch_atlassian(co)
             sources.fetch_atlassian(co)
             self.assertEqual(g.call_count, 1)
@@ -155,7 +155,7 @@ class DescriptionTest(unittest.TestCase):
                     mock.patch.object(sources, "fetch_custom_free", return_value=[]) as free:
                 sources.fetch_all({"sources": {"ats": True, "undocumented_ats": opt_in}}, co)
             self.assertEqual({"fetch_atlassian": atl, "fetch_custom_free": free}[expect].call_count, 1)
-        with mock.patch.object(sources, "_get_json", return_value=listing):
+        with mock.patch.object(sources.net, "get_json", return_value=listing):
             recs, counts, errors = sources.fetch_all({"sources": {"ats": True, "undocumented_ats": True}}, co, FakeBudget())
         sources._atlassian_cache.clear()
         self.assertEqual((counts, errors, len(recs)), ({"custom:Atlassian": 1}, [], 1))
@@ -164,7 +164,7 @@ class DescriptionTest(unittest.TestCase):
         sources._atlassian_cache.clear()
         co = [{"name": "Atlassian", "ats": "custom", "careers_url": "https://www.atlassian.com/company/careers/all-jobs"}]
         b = FakeBudget({co[0]["careers_url"]: "[Backend Engineer](/company/careers/details/9)"})
-        with mock.patch.object(sources, "_get_json", side_effect=OSError("down")):
+        with mock.patch.object(sources.net, "get_json", side_effect=OSError("down")):
             recs, counts, errors = sources.fetch_all({"sources": {"ats": True, "undocumented_ats": True},
                                                       "firecrawl": {"shortlist_reserve": 0}}, co, b)
         self.assertEqual(len(errors), 1)
@@ -181,13 +181,13 @@ class DescriptionTest(unittest.TestCase):
     def test_custom_description_uses_atlassian_then_falls_back(self):
         url = "https://www.atlassian.com/company/careers/details/5"
         with mock.patch.object(sources, "atlassian_description", return_value=JD), \
-                mock.patch.object(sources, "_get") as g:
+                mock.patch.object(sources.net, "get") as g:
             self.assertEqual(sources.custom_description(url, FakeBudget()), JD)
             g.assert_not_called()
         with mock.patch.object(sources, "atlassian_description", return_value="Short but structured"):
             self.assertEqual(sources.custom_description(url, FakeBudget()), "Short but structured")  # resolver text is trusted
         with mock.patch.object(sources, "atlassian_description", side_effect=OSError("down")), \
-                mock.patch.object(sources, "_get", return_value=f"<p>{JD}</p>".encode()):
+                mock.patch.object(sources.net, "get", return_value=f"<p>{JD}</p>".encode()):
             self.assertIn("Requirements", sources.custom_description(url, FakeBudget()))
 
     def test_workable_description_by_account_and_shortlink(self):

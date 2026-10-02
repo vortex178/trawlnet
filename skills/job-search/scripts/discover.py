@@ -29,13 +29,13 @@ import yaml
 
 from common import COMPANIES_PATH, DATA, SEEDS_DIR, UA, age_days, load_config, norm_company, rel, today
 from jobsearch import location_check
-from sources import ATS_FETCHERS, _cfg, _post_json, is_dead, record_outcome, DEAD_AFTER
+from sources import ATS_FETCHERS, DEAD_AFTER, is_dead, net, record_outcome
 
 
 def _undocumented_ok() -> bool:
     """Workday/Darwinbox career-site endpoints are undocumented: only probed when the user opts in."""
     try:
-        return bool(_cfg()["sources"].get("undocumented_ats"))
+        return bool(net.cfg()["sources"].get("undocumented_ats"))
     except SystemExit:
         return False
 
@@ -107,7 +107,7 @@ BLOCKED = _blocked()  # global entries; cmd_run/cmd_verify widen it to the seed 
 
 def _post(url: str, body: dict, headers=None):
     try:
-        return _post_json(url, body, headers)
+        return net.post_json(url, body, headers)
     except Exception:
         return None
 

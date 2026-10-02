@@ -23,7 +23,7 @@ resumes, emails, sheet ids, connector UUIDs, or real run output. Personal data l
 - Tests are offline. Before committing: `python -m unittest discover -s tests` and `python tests/pii_scan.py`.
   Coverage (needs `pip install coverage`; ~100% of the engine is covered, CI fails under 95%):
   `COVERAGE_FILE=$PWD/.coverage coverage run -m unittest discover -s tests && coverage combine && coverage report`.
-  New engine code needs tests; mock the network (`sources._get`, `_get_json`, `_post_json`, `discover._get`).
+  New engine code needs tests; mock the network (`sources.net.get`, `get_json`, `post_json`, `discover._get`).
 - CI runs Python 3.9 and 3.12; 3.9 rejects syntax newer code allows (e.g. a backslash inside an f-string expression).
   Before every push also run the suite on 3.9 (`/usr/bin/python3 -m venv <scratch>/py39 && <scratch>/py39/bin/pip install
   PyYAML`, then `<scratch>/py39/bin/python -m unittest discover -s tests`); the newest local Python is not enough.

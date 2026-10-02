@@ -17,39 +17,16 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 
-from functools import lru_cache
+from common import HOME, UA, age_days, html_to_text, parse_date
 
-from common import HOME, UA, age_days, html_to_text, load_config, parse_date
-
-
-@lru_cache(maxsize=1)
-def _cfg() -> dict:
-    return load_config()
-
-
-def _pack() -> dict:
-    return _cfg()["pack"]
-
-
-def _places_rx() -> str:
-    return "|".join(re.escape(p) for p in _pack()["country_places"])
-
-
-def _get(url: str, timeout: int = 30) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
-
-
-def _get_json(url: str):
-    return json.loads(_get(url))
+from . import net
 
 
 # ---------- We Work Remotely ----------
 
 def fetch_wwr(feed: str) -> list:
     url = f"https://weworkremotely.com/{feed}.rss"
-    root = ET.fromstring(_get(url))
+    root = ET.fromstring(net.get(url))
     out = []
     for it in root.iter("item"):
         g = lambda tag: (it.findtext(tag) or "").strip()  # noqa: E731
@@ -70,7 +47,7 @@ def fetch_wwr(feed: str) -> list:
 # ---------- Remote OK (no key; terms: credit Remote OK and link to the original listing) ----------
 
 def fetch_remoteok(_=None) -> list:
-    d = _get_json("https://remoteok.com/api")
+    d = net.get_json("https://remoteok.com/api")
     out = []
     for j in d if isinstance(d, list) else []:
         if not isinstance(j, dict) or not j.get("position"):
@@ -96,13 +73,13 @@ def fetch_alignerr(cfg: dict) -> list:
     for term in cfg.get("alignerr_searches") or []:
         off = 0
         while off < 600:
-            d = _get_json(f"https://www.alignerr.com/api/jobs?search={urllib.parse.quote(term)}&limit=120&offset={off}")
+            d = net.get_json(f"https://www.alignerr.com/api/jobs?search={urllib.parse.quote(term)}&limit=120&offset={off}")
             for j in d.get("jobs") or []:
                 groups.setdefault(j["title"].strip(), []).append(j)
             off += 120
             if off >= (d.get("total") or 0):
                 break
-    out, name, places = [], cfg["pack"]["name"], _places_rx()
+    out, name, places = [], cfg["pack"]["name"], net.places_rx()
     for title, js in groups.items():
         local = next((j for j in js if re.search(rf"\b({places})\b", j.get("description") or "", re.I)), None)
         j = local or js[0]
@@ -118,7 +95,7 @@ def fetch_alignerr(cfg: dict) -> list:
 
 
 def alignerr_description(detail_url: str) -> str:
-    h = _get(detail_url).decode("utf-8", "ignore")
+    h = net.get(detail_url).decode("utf-8", "ignore")
     m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', h, re.S)
     job = (json.loads(m.group(1))["props"]["pageProps"].get("job") or {}) if m else {}
     head = (f"Engagement: {job.get('jobType', '')} ({job.get('salaryType', '')}), AI-training work for Alignerr. "
@@ -159,7 +136,7 @@ def fetch_adzuna(cfg: dict) -> list:
         d = None
         for _ in (1, 2):  # the API returns occasional 5xx
             try:
-                d = _get_json(url)
+                d = net.get_json(url)
                 break
             except urllib.error.HTTPError as e:
                 if e.code < 500:
@@ -190,11 +167,11 @@ def fetch_adzuna(cfg: dict) -> list:
 # ---------- Hacker News "Ask HN: Who is hiring?" (monthly thread, Algolia API) ----------
 
 def fetch_hn(cfg: dict) -> list:
-    s = _get_json("https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&hitsPerPage=10")
+    s = net.get_json("https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&hitsPerPage=10")
     story = next((h for h in s.get("hits", []) if "who is hiring" in (h.get("title") or "").lower()), None)
     if not story or (age_days(parse_date(story.get("created_at"))) or 0) > 35:
         return []
-    item = _get_json(f"https://hn.algolia.com/api/v1/items/{story['objectID']}")
+    item = net.get_json(f"https://hn.algolia.com/api/v1/items/{story['objectID']}")
     out, places = [], "|".join(re.escape(p) for p in cfg["pack"]["country_places"])
     for c in item.get("children") or []:
         text = html_to_text(c.get("text"))
@@ -230,7 +207,7 @@ def fetch_hn(cfg: dict) -> list:
 # ---------- ATS ----------
 
 def fetch_greenhouse(company: dict) -> list:
-    d = _get_json(f"https://boards-api.greenhouse.io/v1/boards/{company['token']}/jobs?content=true")
+    d = net.get_json(f"https://boards-api.greenhouse.io/v1/boards/{company['token']}/jobs?content=true")
     out = []
     for j in d.get("jobs", []):
         loc = (j.get("location") or {}).get("name", "")
@@ -248,7 +225,7 @@ def fetch_greenhouse(company: dict) -> list:
 
 def fetch_lever(company: dict) -> list:
     host = "api.eu.lever.co" if company.get("region") == "eu" else "api.lever.co"
-    d = _get_json(f"https://{host}/v0/postings/{company['token']}?mode=json")
+    d = net.get_json(f"https://{host}/v0/postings/{company['token']}?mode=json")
     out = []
     for j in d:
         cat = j.get("categories") or {}
@@ -273,7 +250,7 @@ def fetch_lever(company: dict) -> list:
 
 
 def fetch_ashby(company: dict) -> list:
-    d = _get_json(f"https://api.ashbyhq.com/posting-api/job-board/{company['token']}?includeCompensation=true")
+    d = net.get_json(f"https://api.ashbyhq.com/posting-api/job-board/{company['token']}?includeCompensation=true")
     out = []
     for j in d.get("jobs", []):
         if j.get("isListed") is False:
@@ -296,7 +273,7 @@ def fetch_ashby(company: dict) -> list:
 
 
 def fetch_workable(company: dict) -> list:
-    d = _get_json(f"https://apply.workable.com/api/v1/widget/accounts/{company['token']}?details=true")
+    d = net.get_json(f"https://apply.workable.com/api/v1/widget/accounts/{company['token']}?details=true")
     out = []
     for j in d.get("jobs", []):
         locs = j.get("locations") or [{"city": j.get("city"), "country": j.get("country")}]
@@ -317,7 +294,7 @@ def fetch_smartrecruiters(company: dict) -> list:
     """List endpoint has no description; `shortlist` fetches it (smartrecruiters_description) for picked jobs."""
     out, offset = [], 0
     while offset < 1000:
-        d = _get_json(f"https://api.smartrecruiters.com/v1/companies/{company['token']}/postings?limit=100&offset={offset}")
+        d = net.get_json(f"https://api.smartrecruiters.com/v1/companies/{company['token']}/postings?limit=100&offset={offset}")
         for j in d.get("content", []):
             loc = j.get("location") or {}
             out.append({
@@ -337,7 +314,7 @@ def fetch_smartrecruiters(company: dict) -> list:
 
 
 def smartrecruiters_description(detail_url: str) -> str:
-    d = _get_json(detail_url)
+    d = net.get_json(detail_url)
     secs = (d.get("jobAd") or {}).get("sections") or {}
     parts = [f"{(secs.get(k) or {}).get('title', '')}\n{html_to_text((secs.get(k) or {}).get('text'))}"
              for k in ("jobDescription", "qualifications", "additionalInformation")]
@@ -345,14 +322,6 @@ def smartrecruiters_description(detail_url: str) -> str:
 
 
 # ---------- Workday (undocumented public endpoint used by *.myworkdayjobs.com career sites) ----------
-
-def _post_json(url: str, body: dict, headers: dict | None = None):
-    h = {"User-Agent": UA, "Content-Type": "application/json", "Accept": "application/json"}
-    h.update(headers or {})
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=h)
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read())
-
 
 def _workday_base(c: dict) -> str:
     return f"https://{c['host']}/wday/cxs/{c['token']}/{c['site']}"
@@ -375,7 +344,7 @@ def _workday_country_facet(facets: list, country: str):
                 return {f["facetParameter"]: ids}
     for f in flat:
         if "location" in (f.get("facetParameter") or "").lower():
-            places = [re.escape(p) for p in _pack()["country_places"]] or [country]
+            places = [re.escape(p) for p in net.pack()["country_places"]] or [country]
             ids = [v["id"] for v in f.get("values") or [] if "values" not in v and
                    any(re.search(rf"\b{p}\b", (v.get("descriptor") or "").lower()) for p in places)]
             if ids:
@@ -403,26 +372,26 @@ def _workday_posted(text: str):
 
 def fetch_workday(company: dict, country: str | None = None, max_pages: int = 10) -> list:
     """Server-side filtered to the pack's country (country facet, else location facet values naming its places)."""
-    country = (country or _pack()["name"]).lower()
+    country = (country or net.pack()["name"]).lower()
     base = _workday_base(company)
-    first = _post_json(f"{base}/jobs", {"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": ""})
+    first = net.post_json(f"{base}/jobs", {"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": ""})
     facet = _workday_country_facet(first.get("facets"), country)
     applied = facet or {}
     out, offset, total = [], 0, None
     while offset < max_pages * 20:
-        d = first if (offset == 0 and not facet) else _post_json(
+        d = first if (offset == 0 and not facet) else net.post_json(
             f"{base}/jobs", {"appliedFacets": applied, "limit": 20, "offset": offset, "searchText": ""})
         total = d.get("total", total) if total is None else total
         posts = d.get("jobPostings") or []
         for j in posts:
             loc = j.get("locationsText") or ""
             if facet and re.match(r"\d+ Locations", loc):
-                loc = f"{_pack()['name']} ({loc})"  # facet guarantees at least one location in the country
+                loc = f"{net.pack()['name']} ({loc})"  # facet guarantees at least one location in the country
             out.append({
                 "source": "workday", "source_id": j.get("externalPath", ""),
                 "title": j.get("title", ""), "company": company["name"],
                 "location": loc, "remote": True if "remote" in loc.lower() else None,
-                "region_text": _pack()["name"] if facet else "", "eligible_countries": "",
+                "region_text": net.pack()["name"] if facet else "", "eligible_countries": "",
                 "posted": _workday_posted(j.get("postedOn")), "salary_text": "",
                 "url": f"https://{company['host']}/{company['site']}{j.get('externalPath', '')}",
                 "description": "", "detail_url": f"{base}{j.get('externalPath', '')}",
@@ -434,7 +403,7 @@ def fetch_workday(company: dict, country: str | None = None, max_pages: int = 10
 
 
 def workday_description(detail_url: str) -> str:
-    info = _get_json(detail_url).get("jobPostingInfo") or {}
+    info = net.get_json(detail_url).get("jobPostingInfo") or {}
     return html_to_text(info.get("jobDescription"))
 
 
@@ -446,8 +415,8 @@ def fetch_darwinbox(company: dict) -> list:
     page = f"https://{host}/ms/candidatev2/{cid}/careers/allJobs"
     rows, pg = [], 1
     while pg <= 10:  # {"page", "limit"} paginate; response carries job_counts (total)
-        d = _post_json(f"https://{host}/ms/candidateapi/job/alljobs?companyId={cid}", {"page": pg, "limit": 100},
-                       {"Origin": f"https://{host}", "Referer": page})
+        d = net.post_json(f"https://{host}/ms/candidateapi/job/alljobs?companyId={cid}", {"page": pg, "limit": 100},
+                          {"Origin": f"https://{host}", "Referer": page})
         batch = d.get("data") or []
         rows += batch
         if not batch or len(rows) >= (d.get("job_counts") or 0):
@@ -537,7 +506,7 @@ def _custom_records(company: dict, links: list) -> list:
 
 def fetch_custom_free(company: dict) -> list:
     url = company["careers_url"]
-    html = _get(url, timeout=20).decode("utf-8", "ignore")
+    html = net.get(url, timeout=20).decode("utf-8", "ignore")
     pairs = re.findall(r"<a\b[^>]*href=[\"']([^\"'#]+)[\"'][^>]*>(.*?)</a>", html, re.S | re.I)
     # job cards often wrap a heading (title) plus a teaser paragraph; prefer the heading when present
     pairs = [(u, (re.search(r"<h[1-5][^>]*>(.*?)</h[1-5]>", t, re.S | re.I) or [None, t])[1]) for u, t in pairs]
@@ -587,7 +556,7 @@ _atlassian_cache: dict = {}
 
 def _atlassian_listings() -> list:
     if "jobs" not in _atlassian_cache:  # one request per run covers the job list and every description
-        _atlassian_cache["jobs"] = _get_json("https://www.atlassian.com/endpoint/careers/listings")
+        _atlassian_cache["jobs"] = net.get_json("https://www.atlassian.com/endpoint/careers/listings")
     return _atlassian_cache["jobs"]
 
 
@@ -599,7 +568,7 @@ def atlassian_description(url: str) -> str:
     """Atlassian's career pages are JS-rendered; its listings endpoint (undocumented, so opt-in) carries the full text.
     Returns "" for other URLs, when the opt-in is off, or when the job is not listed."""
     m = _ATLASSIAN_JOB.match(url)
-    if not m or not _cfg()["sources"].get("undocumented_ats"):
+    if not m or not net.cfg()["sources"].get("undocumented_ats"):
         return ""
     job = next((j for j in _atlassian_listings() if str(j.get("id")) == m.group(1)), None)
     return _atlassian_text(job) if job else ""
@@ -660,7 +629,7 @@ def custom_description(detail_url: str, budget=None) -> str:
         if text:  # structured sources: trusted as is, no keyword heuristics
             return text
     try:
-        text = html_to_text(_get(detail_url, timeout=20).decode("utf-8", "ignore"))
+        text = html_to_text(net.get(detail_url, timeout=20).decode("utf-8", "ignore"))
     except Exception:
         pass
     if not _looks_like_jd(text) and budget is not None and budget.left() > 0:  # JS-rendered/nav-only page -> Firecrawl (1 credit)

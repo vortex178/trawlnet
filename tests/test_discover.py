@@ -63,9 +63,9 @@ class HttpHelpersTest(unittest.TestCase):
             self.assertIsNone(discover._json("u"))
 
     def test_post_returns_none_on_error(self):
-        with mock.patch.object(discover, "_post_json", return_value={"ok": 1}):
+        with mock.patch.object(discover.net, "post_json", return_value={"ok": 1}):
             self.assertEqual(discover._post("u", {}), {"ok": 1})
-        with mock.patch.object(discover, "_post_json", side_effect=OSError):
+        with mock.patch.object(discover.net, "post_json", side_effect=OSError):
             self.assertIsNone(discover._post("u", {}))
 
     def test_name_match(self):
@@ -104,11 +104,11 @@ class HttpHelpersTest(unittest.TestCase):
                 self.assertEqual(discover.selected_seeds(), want)
 
     def test_undocumented_gate(self):
-        with mock.patch.object(discover, "_cfg", return_value={"sources": {"undocumented_ats": True}}):
+        with mock.patch.object(discover.net, "cfg", return_value={"sources": {"undocumented_ats": True}}):
             self.assertTrue(discover._undocumented_ok())
-        with mock.patch.object(discover, "_cfg", return_value={"sources": {}}):
+        with mock.patch.object(discover.net, "cfg", return_value={"sources": {}}):
             self.assertFalse(discover._undocumented_ok())
-        with mock.patch.object(discover, "_cfg", side_effect=SystemExit):
+        with mock.patch.object(discover.net, "cfg", side_effect=SystemExit):
             self.assertFalse(discover._undocumented_ok())
 
 
