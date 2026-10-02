@@ -43,7 +43,7 @@ It contains no personal data and is intended to live in the public repo.
   tests/                            parser/pipeline fixtures (shared with examples/)
   CLAUDE.md                         contributor guide (NOT a user's personal CLAUDE.md)
   ```
-- **Install (end user):** `/plugin marketplace add <owner>/<repo>` then `/plugin install job-search@<marketplace>`.
+- **Install (end user):** `/plugin marketplace add <owner>/<repo>` then `/plugin install trawlnet@<marketplace>`.
 - **Why not a claude.ai skill:** the pipeline needs local scripts, a Python env, network access, subagents and
   persistent files.
 - **Data lives outside the plugin** (plugin dirs are replaced on update): a user-chosen data folder, e.g.
@@ -215,13 +215,13 @@ examples/
 
 1. Prereqs: Claude Code, Python ≥ 3.9 (or `uv`); optional claude.ai Indeed connector.
 2. Install the plugin (§2).
-3. `/job-search:setup` — choose data folder; create env; pick country pack, cities, remote preference, time zone +
+3. `/trawlnet:setup` — choose data folder; create env; pick country pack, cities, remote preference, time zone +
    forbidden shift window, salary floor, max required experience; choose tracker backend.
-4. `/job-search:profile add <resume> --role <id>` per target role; review generated titles/skills/facts.
+4. `/trawlnet:profile add <resume> --role <id>` per target role; review generated titles/skills/facts.
 5. Optional keys (all off until provided): Firecrawl (custom sites), Adzuna, Google Sheets service account.
-6. `/job-search:discover --seed <country>` (+ own target-company list).
-7. `/job-search:run --dry` — fetch + filter only; no tokens/credits; sanity-check volumes.
-8. `/job-search:run` — first real run; review digest + tracker.
+6. `/trawlnet:discover --seed <country>` (+ own target-company list).
+7. `/trawlnet:run --dry` — fetch + filter only; no tokens/credits; sanity-check volumes.
+8. `/trawlnet:run` — first real run; review digest + tracker.
 
 ---
 

@@ -28,8 +28,6 @@ PLUGIN_ROOT = SKILL_DIR.parents[1]
 PACKS_DIR = PLUGIN_ROOT / "packs"
 SEEDS_DIR = PLUGIN_ROOT / "seeds"
 TEMPLATES_DIR = PLUGIN_ROOT / "templates"
-VERSION = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text()).get("version", "0") \
-    if (PLUGIN_ROOT / ".claude-plugin" / "plugin.json").exists() else "0"
 
 
 def _find_home() -> Path:
@@ -49,7 +47,7 @@ PROFILES_DIR = DATA / "profiles"
 RUNS_DIR = DATA / "runs"
 COMPANIES_PATH = DATA / "companies.json"
 PENDING_ROWS_PATH = DATA / "pending_tracker_rows.jsonl"
-UA = f"Mozilla/5.0 (personal job-search script; trawlnet/{VERSION})"
+UA = "Mozilla/5.0 (personal job-search script; trawlnet)"
 
 
 def rel(path: Path) -> str:

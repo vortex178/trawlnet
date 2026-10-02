@@ -1,11 +1,14 @@
 {
   "name": "trawlnet",
-  "owner": {"name": "vortex178"},
+  "owner": {
+    "name": "vortex178"
+  },
   "plugins": [
     {
-      "name": "job-search",
+      "name": "trawlnet",
       "source": "./",
       "description": "Daily job search with evidence-backed scoring against your resumes and a tracker."
     }
-  ]
+  ],
+  "description": "Trawlnet: token-frugal, evidence-scored job search for Claude Code."
 }

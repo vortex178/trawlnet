@@ -52,26 +52,26 @@ Requirements: Claude Code, Python ≥ 3.9 (or [`uv`](https://docs.astral.sh/uv/)
 
 ```
 /plugin marketplace add vortex178/trawlnet
-/plugin install job-search@trawlnet
+/plugin install trawlnet@trawlnet
 ```
 (From a local clone: `/plugin marketplace add /path/to/trawlnet`.)
 
 ## Set up
 
-1. `/job-search:setup` — Claude asks for a data folder (default `~/job-search`), country pack, cities, remote
+1. `/trawlnet:setup` — Claude asks for a data folder (default `~/job-search`), country pack, cities, remote
    preference, time zone and forbidden working hours, max required experience, salary floor, and tracker backend,
    then runs `setup.py init` (creates the folder, a `.venv`, the `./js` CLI, and the agents).
 2. **Open a new Claude Code session in the data folder** (its `CLAUDE.md` holds your rules; the agents live there).
-3. `/job-search:profile add ~/resume.pdf --role backend-sde` for each target role. Review the generated profile.
+3. `/trawlnet:profile add ~/resume.pdf --role backend-sde` for each target role. Review the generated profile.
 4. Optional keys, all off until you add them to `.secrets/` and enable the flag in `config.yaml`:
    Adzuna (`adzuna.json`), Firecrawl (`firecrawl.key`, for JS-rendered career pages), Google Sheets service account
    (see `skills/job-search/references/tracker-setup.md`). The optional Indeed connector is the claude.ai connector.
-5. `/job-search:discover` — find which ATS boards companies from a seed list use (`seeds/`), or add your own.
+5. `/trawlnet:discover` — find which ATS boards companies from a seed list use (`seeds/`), or add your own.
    Seeds: `in`, `us`, `ca`, `uk` (UK & Ireland), `eu`, `sea` (Singapore & SEA), `anz`, `uae`, `latam`, and the global
    `remoteintech`; pick any mix with `seeds: [...]` in `config.yaml` (default: the country pack's `default_seed`).
-6. `/job-search:run --dry` (fetch + filter only; no tokens beyond the command, no paid credits), then `/job-search:run`.
+6. `/trawlnet:run --dry` (fetch + filter only; no tokens beyond the command, no paid credits), then `/trawlnet:run`.
 
-Other commands: `/job-search:tailor <url or pasted JD>`, `/job-search:track <url>`, `/job-search:status`.
+Other commands: `/trawlnet:tailor <url or pasted JD>`, `/trawlnet:track <url>`, `/trawlnet:status`.
 Power users: `./js status`, `./js setup doctor`, `./js tracker check`, `./js filter --date …`.
 
 See [`examples/data-folder`](examples/data-folder) for a complete (fictional) data folder after one run.
@@ -92,16 +92,31 @@ pages per day; `run --dry` never spends credits.
 
 ## Privacy
 
-- Everything runs locally. Resumes, profiles, the tracker and run history stay in your data folder
-  (`data/jobs.db` is SQLite; configs are YAML/JSON). Nothing is uploaded except: job-description and profile text
-  sent to Claude for scoring/tailoring, requests to the job sources you enable, and tracker rows to your own sheet.
-- Keep your data folder out of public repos (setup writes a `.gitignore`; `.secrets/` and `data/` are ignored).
+The plugin has no server and no telemetry. It stores resumes, profiles, the tracker queue, run history and keys in your
+data folder (`data/jobs.db` is SQLite; configs are YAML/JSON; keys live in `.secrets/`). Data leaves your machine only
+as follows:
+
+| To | What is sent | When |
+| --- | --- | --- |
+| Claude (your Claude Code session and its subagents) | job-description text, your profile and resume facts, job titles | scoring, title checks, tailoring |
+| Job boards: Greenhouse, Lever, Ashby, Workable, SmartRecruiters, We Work Remotely, Remote OK, Hacker News (Algolia) | public listing requests (company board name, feed URL); no personal data | each run |
+| Company career pages and other job pages | plain GET requests for career/jobs pages of tracked companies, of companies behind We Work Remotely listings and of seed-list companies (`discover`); for shortlisted jobs, links found in Hacker News / Remote OK listings and Adzuna / Workable detail pages; for `tailor`/`track`, the job URL you paste (plus a Greenhouse/Lever/Ashby API call for it); no personal data | each run (shortlisted jobs), `discover`, `tailor`/`track` |
+| Workday, Darwinbox, Atlassian, Alignerr | the same kind of public listing request, and for Alignerr your configured `alignerr_searches` terms (`discover` also probes Workday/Darwinbox hosts when validating seed companies) | fetching only if you opt in (`sources.undocumented_ats`, `sources.alignerr`) |
+| Adzuna | your search terms, locations and country, with your own API key | only if you enable it |
+| Firecrawl | URLs that need rendering: career pages of companies you track, shortlisted-job detail pages (including Adzuna), links found in Hacker News / Remote OK listings and job URLs you paste; sent with your own API key and country | only if you enable it |
+| Indeed (Claude connector) | search terms and location from your queries | only if the connector is enabled in your Claude account |
+| Google (Sheets API and OAuth) | tracker rows (default columns: company, role, score, apply URL, profile, status, plus any you add in `tracker.columns`) to your own sheet, authenticated with your own service account | only if you choose the Sheets tracker |
+
+Direct requests to job boards and career pages carry the `trawlnet` User-Agent and your IP address; Firecrawl and Google receive your own credentials, and Firecrawl fetches the pages it renders from its own servers. Nothing else is uploaded or shared, and your data is never sent to the plugin's author. Keys are read only from
+files in `.secrets/` and are never written to run files. Keep your data folder out of public repos (setup
+writes a `.gitignore`; `.secrets/` and `data/` are ignored). Resumes and tracker rows contain personal data: share
+neither.
 
 ## Compliance
 
 - Public, documented job APIs/feeds by default. Workday/Darwinbox career endpoints, the Atlassian board and Alignerr are undocumented:
   **opt-in** (`sources.undocumented_ats`, `sources.alignerr`), paced, and may break.
-- Requests identify themselves (`trawlnet/<version>` User-Agent). No CAPTCHA or bot-detection bypass,
+- Requests identify themselves (`trawlnet` User-Agent). No CAPTCHA or bot-detection bypass,
   no spoofed browser identity.
 - LinkedIn and sites whose terms forbid scraping are never fetched — paste the job text instead.
 - Remote OK listings are credited and linked; We Work Remotely jobs must be applyable on a free source.
