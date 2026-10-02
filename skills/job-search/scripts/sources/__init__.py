@@ -15,9 +15,11 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-from common import UA, html_to_text, parse_date
+from common import UA, html_to_text
 
 from . import net
+from .workday import _workday_country_facet, _workday_posted, fetch_workday, workday_description  # noqa: F401
+from .darwinbox import fetch_darwinbox
 from .greenhouse import fetch_greenhouse
 from .lever import fetch_lever
 from .ashby import fetch_ashby
@@ -29,125 +31,6 @@ from .wwr import fetch_wwr
 from .remoteok import fetch_remoteok
 from .hn import fetch_hn
 from .text import ROLE
-
-
-# ---------- Workday (undocumented public endpoint used by *.myworkdayjobs.com career sites) ----------
-
-def _workday_base(c: dict) -> str:
-    return f"https://{c['host']}/wday/cxs/{c['token']}/{c['site']}"
-
-
-def _workday_facets_flat(facets: list):
-    for f in facets or []:
-        yield f
-        yield from _workday_facets_flat([v for v in f.get("values") or [] if "values" in v])
-
-
-def _workday_country_facet(facets: list, country: str):
-    """{facetParameter: [ids]} restricting to the country: a country facet if the tenant has one,
-    else every value of a location facet whose name mentions the country (e.g. 'Gurgaon, India')."""
-    flat = list(_workday_facets_flat(facets))
-    for f in flat:
-        if "country" in (f.get("facetParameter") or "").lower():
-            ids = [v["id"] for v in f.get("values") or [] if (v.get("descriptor") or "").lower() == country]
-            if ids:
-                return {f["facetParameter"]: ids}
-    for f in flat:
-        if "location" in (f.get("facetParameter") or "").lower():
-            places = [re.escape(p) for p in net.pack()["country_places"]] or [country]
-            ids = [v["id"] for v in f.get("values") or [] if "values" not in v and
-                   any(re.search(rf"\b{p}\b", (v.get("descriptor") or "").lower()) for p in places)]
-            if ids:
-                return {f["facetParameter"]: ids}
-    for f in flat:  # opaque facet names (e.g. 'a', 'b'): any facet offering the country itself as a value
-        ids = [v["id"] for v in f.get("values") or [] if (v.get("descriptor") or "").lower() == country]
-        if ids and f.get("facetParameter"):
-            return {f["facetParameter"]: ids}
-    return None
-
-
-def _workday_posted(text: str):
-    t = (text or "").lower()
-    if "today" in t:
-        days = 0
-    elif "yesterday" in t:
-        days = 1
-    else:
-        m = re.search(r"(\d+)\+?\s*day", t)
-        days = int(m.group(1)) + (1 if "+" in t else 0) if m else None
-    if days is None:
-        return None
-    return (dt.date.today() - dt.timedelta(days=days)).isoformat()
-
-
-def fetch_workday(company: dict, country: str | None = None, max_pages: int = 10) -> list:
-    """Server-side filtered to the pack's country (country facet, else location facet values naming its places)."""
-    country = (country or net.pack()["name"]).lower()
-    base = _workday_base(company)
-    first = net.post_json(f"{base}/jobs", {"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": ""})
-    facet = _workday_country_facet(first.get("facets"), country)
-    applied = facet or {}
-    out, offset, total = [], 0, None
-    while offset < max_pages * 20:
-        d = first if (offset == 0 and not facet) else net.post_json(
-            f"{base}/jobs", {"appliedFacets": applied, "limit": 20, "offset": offset, "searchText": ""})
-        total = d.get("total", total) if total is None else total
-        posts = d.get("jobPostings") or []
-        for j in posts:
-            loc = j.get("locationsText") or ""
-            if facet and re.match(r"\d+ Locations", loc):
-                loc = f"{net.pack()['name']} ({loc})"  # facet guarantees at least one location in the country
-            out.append({
-                "source": "workday", "source_id": j.get("externalPath", ""),
-                "title": j.get("title", ""), "company": company["name"],
-                "location": loc, "remote": True if "remote" in loc.lower() else None,
-                "region_text": net.pack()["name"] if facet else "", "eligible_countries": "",
-                "posted": _workday_posted(j.get("postedOn")), "salary_text": "",
-                "url": f"https://{company['host']}/{company['site']}{j.get('externalPath', '')}",
-                "description": "", "detail_url": f"{base}{j.get('externalPath', '')}",
-            })
-        offset += 20
-        if not posts or offset >= (total or 0):
-            break
-    return out
-
-
-def workday_description(detail_url: str) -> str:
-    info = net.get_json(detail_url).get("jobPostingInfo") or {}
-    return html_to_text(info.get("jobDescription"))
-
-
-# ---------- Darwinbox (public endpoint used by *.darwinbox.in career sites) ----------
-
-def fetch_darwinbox(company: dict) -> list:
-    host = company.get("host") or f"{company['token']}.darwinbox.in"
-    cid = company.get("site") or "main"
-    page = f"https://{host}/ms/candidatev2/{cid}/careers/allJobs"
-    rows, pg = [], 1
-    while pg <= 10:  # {"page", "limit"} paginate; response carries job_counts (total)
-        d = net.post_json(f"https://{host}/ms/candidateapi/job/alljobs?companyId={cid}", {"page": pg, "limit": 100},
-                          {"Origin": f"https://{host}", "Referer": page})
-        batch = d.get("data") or []
-        rows += batch
-        if not batch or len(rows) >= (d.get("job_counts") or 0):
-            break
-        pg += 1
-    out = []
-    for j in rows:
-        loc = (j.get("locations") or j.get("officelocation_show_arr") or "").replace("\r", "")
-        remote = bool(j.get("is_remote"))
-        exp = j.get("experience") or ""
-        desc = html_to_text(j.get("jd"))
-        out.append({
-            "source": "darwinbox", "source_id": j.get("id", ""),
-            "title": j.get("title") or j.get("designation_display_name") or j.get("designation_name", ""),
-            "company": company["name"], "location": ("Remote; " if remote else "") + loc,
-            "remote": remote, "region_text": j.get("country", ""), "eligible_countries": "",
-            "posted": parse_date(j.get("posted_on") or j.get("created_on")), "salary_text": "",
-            "url": f"https://{host}/ms/candidatev2/{cid}/careers/jobDetails/{j.get('id', '')}",
-            "description": (f"Experience: {exp}\n\n" if exp else "") + desc,
-        })
-    return out
 
 
 # ---------- Custom career sites (free fetch first, Firecrawl markdown when JS-rendered) ----------
