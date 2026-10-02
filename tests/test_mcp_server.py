@@ -188,14 +188,55 @@ class FindHome(unittest.TestCase):
             self.assertIsNone(srv.find_home())
 
 
-class Main(unittest.TestCase):
-    def test_serves_utf8_stdio(self):
-        with mock.patch.object(srv, "serve") as serve, mock.patch.object(sys, "stdin") as i, \
-                mock.patch.object(sys, "stdout") as o:
+class Reexec(unittest.TestCase):
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp()).resolve()
+        (self.home / "config.yaml").write_text("")
+        (self.home / "data").mkdir()
+        patch = mock.patch.dict(os.environ, {"JOB_SEARCH_HOME": str(self.home)})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def _venv(self):
+        py = self.home / ".venv" / "bin" / "python"
+        py.parent.mkdir(parents=True)
+        py.write_text("")
+        py.chmod(0o755)
+        return py
+
+    def test_no_venv_serves_utf8_stdio_in_place(self):
+        with mock.patch.object(srv, "serve") as serve, mock.patch("os.execv") as execv, \
+                mock.patch.object(sys, "stdin") as i, mock.patch.object(sys, "stdout") as o:
             srv.main()
+        execv.assert_not_called()
         serve.assert_called_once()
         i.reconfigure.assert_called_once_with(encoding="utf-8")
         o.reconfigure.assert_called_once_with(encoding="utf-8")
+
+    def test_reexecs_into_data_folder_venv_once(self):
+        py = self._venv()
+        with mock.patch.dict(os.environ), mock.patch("os.execv") as execv, mock.patch.object(srv, "serve"):
+            os.environ.pop("TRAWLNET_MCP_REEXEC", None)
+            srv.main()
+            self.assertEqual(os.environ["TRAWLNET_MCP_REEXEC"], "1")
+            self.assertIsNone(srv._venv_python())  # marker set: never loops
+        self.assertEqual(execv.call_args[0][0], str(py))
+
+    def test_already_in_venv(self):
+        py = self._venv()
+        with mock.patch.dict(os.environ), mock.patch.object(sys, "prefix", str(py.parents[1])):
+            os.environ.pop("TRAWLNET_MCP_REEXEC", None)
+            self.assertIsNone(srv._venv_python())
+
+    def test_reexec_needs_no_pyyaml(self):
+        """The launching python may lack PyYAML: finding the venv must not import common."""
+        py = self._venv()
+        code = ("import sys, os; sys.modules['yaml'] = None; sys.path.insert(0, %r); import mcp_server as s; "
+                "os.execv = lambda p, a: print('EXEC', p); s.main()" % str(Path(srv.__file__).parent))
+        env = {k: v for k, v in os.environ.items() if k != "TRAWLNET_MCP_REEXEC"}
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=30,
+                             stdin=subprocess.DEVNULL)
+        self.assertIn(f"EXEC {py}", out.stdout, out.stderr)
 
 
 class Stdio(unittest.TestCase):
