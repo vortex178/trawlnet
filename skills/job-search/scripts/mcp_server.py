@@ -171,7 +171,22 @@ def serve(stdin=None, stdout=None) -> None:
             stdout.flush()
 
 
+def _venv_python() -> str | None:
+    """The data folder's env python (Sheets needs its google-auth), when this process is not already running it."""
+    home = find_home()
+    if os.environ.get("TRAWLNET_MCP_REEXEC") or not home:
+        return None
+    py = home / ".venv" / "bin" / "python"
+    if not os.access(py, os.X_OK) or Path(sys.prefix).resolve() == py.parents[1].resolve():
+        return None
+    return str(py)
+
+
 def main() -> None:
+    py = _venv_python()
+    if py:
+        os.environ["TRAWLNET_MCP_REEXEC"] = "1"
+        os.execv(py, [py, os.path.abspath(__file__)])
     for stream in (sys.stdin, sys.stdout):  # MCP stdio is UTF-8 whatever the locale
         stream.reconfigure(encoding="utf-8")
     serve()
