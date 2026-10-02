@@ -84,6 +84,17 @@ def location_check(rec: dict, cfg: dict) -> tuple:
     return "verify", "remote", "remote-unverified"
 
 
+# ---------- contract roles (config `exclude_contract`) ----------
+
+CONTRACT_TYPE = re.compile(r"contract|freelance|temporary|\btemp\b|fixed[- ]?term|\bc2h\b", re.I)  # structured job-type fields
+CONTRACT_TITLE = re.compile(r"(?<!smart )(?<!smart-)\b(contract(or)?|freelance|temporary|fixed[- ]term|c2h|"
+                            r"contract[- ]to[- ]hire)\b", re.I)  # "Smart Contract Engineer" is a permanent-role title
+
+
+def is_contract(rec: dict) -> bool:
+    return bool(CONTRACT_TYPE.search(rec.get("job_type") or "") or CONTRACT_TITLE.search(rec["title"]))
+
+
 # ---------- title routing ----------
 
 SENIORITY = [  # highest priority first
@@ -158,6 +169,8 @@ def write_context(cfg) -> str:
         + ("yes" if work.get("reject_strict_wfo") else "no"),
         f"- Forbidden working hours: {shift + ' in ' + tz if shift else 'none'} (user time zone {tz})",
     ]
+    if cfg.get("exclude_contract"):
+        lines.append("- Contract, freelance, temporary or fixed-term engagements: excluded (a deal_breaker fail)")
     path = DATA / "scoring-context.md"
     path.write_text("\n".join(lines) + "\n")
     return rel(path)
@@ -221,7 +234,7 @@ def _load_indeed(d) -> list:
             "source": "indeed", "source_id": r.get("id", ""), "title": r["title"], "company": r["company"],
             "location": r.get("location", ""), "remote": None, "region_text": "", "eligible_countries": "",
             "posted": parse_date(r.get("posted")), "salary_text": r.get("compensation", ""),
-            "url": r.get("url", ""), "description": "",
+            "job_type": r.get("job_type", ""), "url": r.get("url", ""), "description": "",
         })
     return out
 
@@ -268,6 +281,9 @@ def cmd_filter(a, cfg):
         verdict, reason = rec.pop("_loc")
         if verdict == "reject":  # (details for the seen DB are added below)
             rejected.append({"key": key, "reason": reason})
+            continue
+        if cfg.get("exclude_contract") and is_contract(rec):
+            rejected.append({"key": key, "reason": "contract"})
             continue
         flags = [reason] if verdict == "verify" else []
         if age is None:

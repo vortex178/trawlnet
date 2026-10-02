@@ -111,7 +111,7 @@ def fetch_alignerr(cfg: dict) -> list:
             "location": "Remote" + (f" - {name}" if local else ""), "remote": True,
             "region_text": name if local else "", "eligible_countries": "", "posted": None,
             "salary_text": (j.get("pay") or "").replace("$", "USD ").replace("/hr", " per hour"),
-            "url": f"https://www.alignerr.com/jobs/{j['id']}", "description": "",
+            "job_type": "Contract", "url": f"https://www.alignerr.com/jobs/{j['id']}", "description": "",
             "detail_url": f"https://www.alignerr.com/jobs/{j['id']}",
         })
     return out
@@ -180,7 +180,8 @@ def fetch_adzuna(cfg: dict) -> list:
                 "company": (j.get("company") or {}).get("display_name", ""),
                 "location": ("Remote; " if remote else "") + loc, "remote": remote or None,
                 "region_text": cfg["pack"]["name"], "eligible_countries": "", "posted": parse_date(j.get("created")),
-                "salary_text": sal, "url": j.get("redirect_url", ""), "description": text,
+                "salary_text": sal, "job_type": " ".join(filter(None, [j.get("contract_type"), j.get("contract_time")])),
+                "url": j.get("redirect_url", ""), "description": text,
                 "detail_url": f"https://{az.get('details_domain', 'www.adzuna.com')}/details/{j['id']}",
             })
     return out
@@ -265,7 +266,7 @@ def fetch_lever(company: dict) -> list:
             "location": "; ".join(filter(None, locs)),
             "remote": True if j.get("workplaceType") == "remote" else (False if j.get("workplaceType") else None),
             "region_text": j.get("country") or "", "eligible_countries": "",
-            "posted": parse_date(j.get("createdAt")), "salary_text": sal_text,
+            "posted": parse_date(j.get("createdAt")), "salary_text": sal_text, "job_type": cat.get("commitment") or "",
             "url": j.get("hostedUrl", ""), "description": desc[:9000],
         })
     return out
@@ -288,6 +289,7 @@ def fetch_ashby(company: dict) -> list:
             "region_text": addr.get("addressCountry", ""), "eligible_countries": "",
             "posted": parse_date(j.get("publishedAt")),
             "salary_text": comp.get("scrapeableCompensationSalarySummary") or comp.get("compensationTierSummary") or "",
+            "job_type": j.get("employmentType") or "",
             "url": j.get("jobUrl", ""), "description": (j.get("descriptionPlain") or "")[:9000],
         })
     return out
@@ -305,6 +307,7 @@ def fetch_workable(company: dict) -> list:
             "location": ("Remote; " if j.get("telecommuting") else "") + loc,
             "remote": bool(j.get("telecommuting")), "region_text": "", "eligible_countries": "",
             "posted": parse_date(j.get("published_on") or j.get("created_at")), "salary_text": "",
+            "job_type": j.get("employment_type") or "",
             "url": j.get("url", ""), "description": html_to_text(j.get("description")),
         })
     return out
@@ -323,6 +326,7 @@ def fetch_smartrecruiters(company: dict) -> list:
                 "location": ("Remote; " if loc.get("remote") else "") + (loc.get("fullLocation") or ""),
                 "remote": bool(loc.get("remote")), "region_text": loc.get("country", ""), "eligible_countries": "",
                 "posted": parse_date(j.get("releasedDate")), "salary_text": "",
+                "job_type": " ".join(filter(None, [(j.get("typeOfEmployment") or {}).get(k) for k in ("id", "label")])),
                 "url": f"https://jobs.smartrecruiters.com/{company['token']}/{j['id']}",
                 "description": "", "detail_url": j.get("ref", ""),
             })
@@ -723,7 +727,7 @@ def fetch_all(cfg: dict, companies: list, budget=None) -> tuple:
         tasks.append(("remoteok", fetch_remoteok, None))
     if cfg["sources"].get("hn"):
         tasks.append(("hn", fetch_hn, cfg))
-    if cfg["sources"].get("alignerr"):
+    if cfg["sources"].get("alignerr") and not cfg.get("exclude_contract"):  # every Alignerr role is contract work
         tasks.append(("alignerr", fetch_alignerr, cfg))
     if cfg["sources"].get("adzuna"):
         tasks.append(("adzuna", fetch_adzuna, cfg))

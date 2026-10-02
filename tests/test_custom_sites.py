@@ -123,6 +123,14 @@ class DescriptionTest(unittest.TestCase):
             self.assertEqual(g.call_count, 1)  # one request covers every job in the run
         sources._atlassian_cache.clear()
 
+    def test_exclude_contract_skips_the_alignerr_source(self):
+        cfg = {"sources": {"alignerr": True}, "exclude_contract": True}
+        with mock.patch.object(sources, "fetch_alignerr") as al:
+            sources.fetch_all(cfg, [])
+            al.assert_not_called()
+            sources.fetch_all({**cfg, "exclude_contract": False}, [])
+            al.assert_called_once()
+
     def test_custom_description_uses_atlassian_then_falls_back(self):
         url = "https://www.atlassian.com/company/careers/details/5"
         with mock.patch.object(sources, "atlassian_description", return_value=JD), \

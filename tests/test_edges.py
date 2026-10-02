@@ -181,6 +181,37 @@ class FilterRejectionsTest(unittest.TestCase):
         self.assertIn("duplicates=1", out)
         self.assertIn("WWR REJ EdgeWwr — stub", out)
 
+    def test_exclude_contract_by_job_type_and_title(self):
+        recs = [self.rec("CtType", job_type="Contract"), self.rec("CtTemp", job_type="Fixed-term"),
+                self.rec("CtTitle", title="Backend Engineer (Contract)"), self.rec("CtC2h", title="Backend Engineer - C2H"),
+                self.rec("CtFree", title="Freelance Backend Engineer"),
+                self.rec("CtSmart", title="Smart Contract Backend Engineer"),
+                self.rec("CtPerm", job_type="Full-time"), self.rec("CtNone")]
+        d, out, rejected = self.run_filter(recs, "2004-03-01", exclude_contract=True)
+        self.assertEqual({r["company"] for r in rejected.values() if r["reason"] == "contract"},
+                         {"CtType", "CtTemp", "CtTitle", "CtC2h", "CtFree"})
+        self.assertEqual({r["company"] for r in common.read_jsonl(d / "accepted.jsonl")}, {"CtSmart", "CtPerm", "CtNone"})
+        self.assertIn("rej:contract=5", out)
+
+    def test_contract_roles_kept_unless_excluded(self):
+        d, _, rejected = self.run_filter([self.rec("CtKept", job_type="Contract")], "2004-03-02")
+        self.assertEqual([r["company"] for r in common.read_jsonl(d / "accepted.jsonl")], ["CtKept"])
+        self.assertEqual(rejected, {})
+
+    def test_indeed_job_type_reaches_the_contract_filter(self):
+        d = common.run_dir("2004-03-03")
+        common.write_jsonl(d / "indeed_raw.jsonl", [
+            {"id": "1", "title": "Backend Engineer", "company": "IndeedCt", "location": "Bengaluru, India",
+             "posted": "2 days ago", "job_type": "Full-time, Contract", "url": "u"},
+            {"id": "2", "title": "Backend Engineer", "company": "IndeedPerm", "location": "Bengaluru, India",
+             "posted": "2 days ago", "job_type": "Full-time", "url": "u"}])
+        common.write_jsonl(d / "feeds.jsonl", [])
+        with contextlib.redirect_stdout(io.StringIO()):
+            jobsearch.cmd_filter(Namespace(date="2004-03-03", quiet=True),
+                                 {**common.load_config(), "exclude_contract": True})
+        self.assertEqual([r["company"] for r in common.read_jsonl(d / "accepted.jsonl")], ["IndeedPerm"])
+        self.assertEqual([r["reason"] for r in common.read_jsonl(d / "rejected.jsonl")], ["contract"])
+
     def test_ambiguous_titles_are_listed_for_the_classifier(self):
         d, out, _ = self.run_filter([self.rec("EdgeAmbig", title="Engineer")], "2004-02-03")
         self.assertEqual([r["company"] for r in common.read_jsonl(d / "ambiguous.jsonl")], ["EdgeAmbig"])

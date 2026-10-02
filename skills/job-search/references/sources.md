@@ -70,6 +70,13 @@ salary/employer are often only on the source listing.
 Roles are posted as many city-targeted copies → one record per title, preferring a copy targeting the pack's
 country. Full description fetched only when shortlisted. Pay is hourly USD (annualized ×2080 for the floor).
 `shortlist_source_caps.alignerr` limits slots per run; the digest marks them as contract work.
+With `exclude_contract: true` the source is not fetched at all.
+
+## Contract roles (`exclude_contract: true`)
+`filter` rejects (reason `contract`) records whose structured employment type says contract/freelance/temporary/
+fixed-term (`job_type`: Indeed, Adzuna, Lever, Ashby, Workable, SmartRecruiters) or whose
+title does ("Smart Contract Engineer" is not matched). Boards with no such field (Greenhouse, HN, WWR, Workday…) are only
+caught by title; the scorer also gets a context line and fails the `deal_breaker` gate when the JD says so.
 
 ## WWR free-apply verification
 WWR applications can be paywalled for job seekers, so with `wwr_require_free_apply: true` every WWR job that passes

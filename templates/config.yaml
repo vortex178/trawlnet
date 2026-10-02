@@ -24,6 +24,7 @@ models: {fetcher_model: haiku, scorer_model: sonnet, researcher_model: haiku}
 max_age_days: 14                 # freshness limit for postings
 max_age_days_by_source: {hn: 31} # HN posts land in the first days of a monthly thread
 keep_undated: true               # keep postings with no date (flagged)
+exclude_contract: false           # drop contract / freelance / temporary roles (also skips the Alignerr source)
 retention_days_raw: 7            # raw fetch files + Firecrawl page cache kept this long (gzipped after publish)
 
 shortlist_size: 15               # jobs whose full description gets read and scored per run (~100k tokens)

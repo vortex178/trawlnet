@@ -51,6 +51,13 @@ class ContextPlanStatusTest(unittest.TestCase):
         self.assertIn("Max required experience (the JD's minimum years): 6", text)
         self.assertIn("Remote bias: some; reject strict work-from-office: no", text)
 
+    def test_context_says_contract_roles_are_excluded_only_when_configured(self):
+        self.assertNotIn("Contract, freelance", (DATA / "scoring-context.md").read_text())
+        jobsearch.write_context({**load_config(), "exclude_contract": True})
+        self.assertIn("Contract, freelance, temporary or fixed-term engagements: excluded",
+                      (DATA / "scoring-context.md").read_text())
+        jobsearch.write_context(load_config())
+
     def test_context_for_a_us_setup_without_cities(self):
         cfg = {**load_config(), "pack": load_pack("us"), "currency": "USD", "fx_to_local": {"INR": 0.012},
                "country": "US", "accept_cities": {}, "remote_scope": "global_ok"}

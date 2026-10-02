@@ -51,6 +51,9 @@ class BoardFetchersTest(unittest.TestCase):
         r = out[0]
         self.assertIn("api.lever.co/v0/postings/acme", url)
         self.assertEqual((r["location"], r["remote"], r["posted"]), ("Bengaluru; Remote", True, "2025-09-20"))
+        self.assertEqual(r["job_type"], "")
+        posting["categories"]["commitment"] = "Contract"
+        self.assertEqual(self.fetch(sources.fetch_lever, [posting])[0][0]["job_type"], "Contract")
         self.assertEqual(parse_salary(r["salary_text"], FX), (3_000_000, 4_000_000))
         for part in ("Own the platform.", "Requirements", "- Java", "Apply today."):
             self.assertIn(part, r["description"])
@@ -74,6 +77,9 @@ class BoardFetchersTest(unittest.TestCase):
         r = out[0]
         self.assertEqual((r["location"], r["remote"], r["region_text"], r["posted"]),
                          ("Remote - India; Pune", True, "India", "2026-09-25"))
+        self.assertEqual(r["job_type"], "")
+        ct, _ = self.fetch(sources.fetch_ashby, {"jobs": [{"id": "a3", "title": "T", "employmentType": "Contract"}]})
+        self.assertEqual(ct[0]["job_type"], "Contract")
         self.assertEqual(parse_salary(r["salary_text"], FX), (3_000_000, 4_000_000))
 
     def test_workable(self):
@@ -83,6 +89,8 @@ class BoardFetchersTest(unittest.TestCase):
             {"shortcode": "W2", "title": "QA", "telecommuting": False, "city": "Delhi", "country": "India"}]})
         self.assertEqual((out[0]["location"], out[0]["remote"], out[0]["description"]), ("Remote; Pune, India", True, "Hi"))
         self.assertEqual((out[1]["location"], out[1]["remote"]), ("Delhi, India", False))
+        ct, _ = self.fetch(sources.fetch_workable, {"jobs": [{"shortcode": "W3", "title": "T", "employment_type": "Contract"}]})
+        self.assertEqual((out[0]["job_type"], ct[0]["job_type"]), ("", "Contract"))
 
     def test_smartrecruiters_paginates_and_fetches_description_lazily(self):
         def page(i):
@@ -95,6 +103,10 @@ class BoardFetchersTest(unittest.TestCase):
         self.assertEqual([(r["title"], r["remote"], r["location"]) for r in out],
                          [("Engineer 0", False, "Pune, India"), ("Engineer 1", True, "Remote; Pune, India")])
         self.assertEqual(out[0]["description"], "")
+        self.assertEqual(out[0]["job_type"], "")
+        with mock.patch.object(sources, "_get_json", return_value={"totalFound": 1, "content": [
+                {"id": "c1", "name": "T", "typeOfEmployment": {"id": "contract", "label": "Contract"}}]}):
+            self.assertEqual(sources.fetch_smartrecruiters({"name": "Acme", "token": "acme"})[0]["job_type"], "contract Contract")
         detail = {"jobAd": {"sections": {"jobDescription": {"title": "Job Description", "text": "<p>Do things</p>"},
                                          "qualifications": {"title": "Qualifications", "text": "<ul><li>Java</li></ul>"}}}}
         with mock.patch.object(sources, "_get_json", return_value=detail):
@@ -223,6 +235,7 @@ class FeedFetchersTest(unittest.TestCase):
         self.assertEqual((trainer["source_id"], trainer["location"], trainer["region_text"], trainer["salary_text"]),
                          ("j1", "Remote - India", "India", "USD 40 per hour"))
         self.assertEqual((rater["location"], rater["region_text"]), ("Remote", ""))
+        self.assertEqual({trainer["job_type"], rater["job_type"]}, {"Contract"})
         self.assertEqual(rater["detail_url"], "https://www.alignerr.com/jobs/j3")
 
     def test_alignerr_description(self):
@@ -259,7 +272,9 @@ class AdzunaTest(unittest.TestCase):
                   "location": {"display_name": "Gurgaon, Haryana"}, "description": "Work remote from home.",
                   "salary_min": 2000000, "salary_max": 2500000, "salary_is_predicted": "0",
                   "created": "2026-09-25T10:00:00Z", "redirect_url": "https://www.adzuna.in/land/ad/1"}
-        out, m = self.run_fetch(lambda url: {"results": [result, {**result, "id": 2, "salary_is_predicted": "1"}]})
+        out, m = self.run_fetch(lambda url: {"results": [
+            {**result, "contract_type": "contract", "contract_time": "full_time"},
+            {**result, "id": 2, "salary_is_predicted": "1"}]})
         urls = [c[0][0] for c in m.call_args_list]
         self.assertEqual(len(urls), 2)
         self.assertIn("/jobs/in/search/1", urls[0])
@@ -272,6 +287,7 @@ class AdzunaTest(unittest.TestCase):
         self.assertEqual(parse_salary(r["salary_text"], FX), (2_000_000, 2_500_000))
         self.assertEqual(r["detail_url"], "https://www.adzuna.in/details/1")
         self.assertEqual(out[1]["salary_text"], "")
+        self.assertEqual((r["job_type"], out[1]["job_type"]), ("contract full_time", ""))
 
     def test_queries_default_to_profile_search_terms(self):
         profiles = {"a": {"search_queries": ["Java Developer", "Spring Boot Engineer"], "target_titles": ["x"]},
