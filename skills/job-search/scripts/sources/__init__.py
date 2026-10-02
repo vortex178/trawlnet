@@ -18,129 +18,17 @@ from concurrent.futures import ThreadPoolExecutor
 from common import UA, html_to_text, parse_date
 
 from . import net
+from .greenhouse import fetch_greenhouse
+from .lever import fetch_lever
+from .ashby import fetch_ashby
+from .workable import fetch_workable
+from .smartrecruiters import fetch_smartrecruiters, smartrecruiters_description
 from .adzuna import fetch_adzuna
 from .alignerr import fetch_alignerr, alignerr_description
 from .wwr import fetch_wwr
 from .remoteok import fetch_remoteok
 from .hn import fetch_hn
 from .text import ROLE
-
-
-# ---------- ATS ----------
-
-def fetch_greenhouse(company: dict) -> list:
-    d = net.get_json(f"https://boards-api.greenhouse.io/v1/boards/{company['token']}/jobs?content=true")
-    out = []
-    for j in d.get("jobs", []):
-        loc = (j.get("location") or {}).get("name", "")
-        offices = ", ".join(o.get("name", "") for o in j.get("offices") or [])
-        out.append({
-            "source": "greenhouse", "source_id": str(j["id"]),
-            "title": j.get("title", ""), "company": company["name"],
-            "location": loc, "remote": None, "region_text": offices, "eligible_countries": "",
-            "posted": parse_date(j.get("first_published") or j.get("updated_at")),
-            "salary_text": "", "url": j.get("absolute_url", ""),
-            "description": html_to_text(j.get("content")),
-        })
-    return out
-
-
-def fetch_lever(company: dict) -> list:
-    host = "api.eu.lever.co" if company.get("region") == "eu" else "api.lever.co"
-    d = net.get_json(f"https://{host}/v0/postings/{company['token']}?mode=json")
-    out = []
-    for j in d:
-        cat = j.get("categories") or {}
-        locs = cat.get("allLocations") or [cat.get("location", "")]
-        sal = j.get("salaryRange") or {}
-        sal_text = ""
-        if sal.get("min"):
-            sal_text = f"{sal.get('currency', '')} {sal['min']} - {sal.get('max', sal['min'])} per {sal.get('interval', 'year')}"
-        desc = "\n\n".join(filter(None, [j.get("descriptionPlain"), *[
-            f"{x.get('text', '')}\n{html_to_text(x.get('content'))}" for x in j.get("lists") or []
-        ], j.get("additionalPlain")]))
-        out.append({
-            "source": "lever", "source_id": j["id"],
-            "title": j.get("text", ""), "company": company["name"],
-            "location": "; ".join(filter(None, locs)),
-            "remote": True if j.get("workplaceType") == "remote" else (False if j.get("workplaceType") else None),
-            "region_text": j.get("country") or "", "eligible_countries": "",
-            "posted": parse_date(j.get("createdAt")), "salary_text": sal_text, "job_type": cat.get("commitment") or "",
-            "url": j.get("hostedUrl", ""), "description": desc[:9000],
-        })
-    return out
-
-
-def fetch_ashby(company: dict) -> list:
-    d = net.get_json(f"https://api.ashbyhq.com/posting-api/job-board/{company['token']}?includeCompensation=true")
-    out = []
-    for j in d.get("jobs", []):
-        if j.get("isListed") is False:
-            continue
-        locs = [j.get("location", "")] + [s.get("location", "") for s in j.get("secondaryLocations") or []]
-        addr = ((j.get("address") or {}).get("postalAddress") or {})
-        comp = j.get("compensation") or {}
-        out.append({
-            "source": "ashby", "source_id": j["id"],
-            "title": j.get("title", ""), "company": company["name"],
-            "location": "; ".join(filter(None, locs)),
-            "remote": bool(j.get("isRemote")) or j.get("workplaceType") == "Remote",
-            "region_text": addr.get("addressCountry", ""), "eligible_countries": "",
-            "posted": parse_date(j.get("publishedAt")),
-            "salary_text": comp.get("scrapeableCompensationSalarySummary") or comp.get("compensationTierSummary") or "",
-            "job_type": j.get("employmentType") or "",
-            "url": j.get("jobUrl", ""), "description": (j.get("descriptionPlain") or "")[:9000],
-        })
-    return out
-
-
-def fetch_workable(company: dict) -> list:
-    d = net.get_json(f"https://apply.workable.com/api/v1/widget/accounts/{company['token']}?details=true")
-    out = []
-    for j in d.get("jobs", []):
-        locs = j.get("locations") or [{"city": j.get("city"), "country": j.get("country")}]
-        loc = "; ".join(", ".join(filter(None, [l.get("city"), l.get("country")])) for l in locs)
-        out.append({
-            "source": "workable", "source_id": j.get("shortcode", ""),
-            "title": j.get("title", ""), "company": company["name"],
-            "location": ("Remote; " if j.get("telecommuting") else "") + loc,
-            "remote": bool(j.get("telecommuting")), "region_text": "", "eligible_countries": "",
-            "posted": parse_date(j.get("published_on") or j.get("created_at")), "salary_text": "",
-            "job_type": j.get("employment_type") or "",
-            "url": j.get("url", ""), "description": html_to_text(j.get("description")),
-        })
-    return out
-
-
-def fetch_smartrecruiters(company: dict) -> list:
-    """List endpoint has no description; `shortlist` fetches it (smartrecruiters_description) for picked jobs."""
-    out, offset = [], 0
-    while offset < 1000:
-        d = net.get_json(f"https://api.smartrecruiters.com/v1/companies/{company['token']}/postings?limit=100&offset={offset}")
-        for j in d.get("content", []):
-            loc = j.get("location") or {}
-            out.append({
-                "source": "smartrecruiters", "source_id": j["id"],
-                "title": j.get("name", ""), "company": company["name"],
-                "location": ("Remote; " if loc.get("remote") else "") + (loc.get("fullLocation") or ""),
-                "remote": bool(loc.get("remote")), "region_text": loc.get("country", ""), "eligible_countries": "",
-                "posted": parse_date(j.get("releasedDate")), "salary_text": "",
-                "job_type": " ".join(filter(None, [(j.get("typeOfEmployment") or {}).get(k) for k in ("id", "label")])),
-                "url": f"https://jobs.smartrecruiters.com/{company['token']}/{j['id']}",
-                "description": "", "detail_url": j.get("ref", ""),
-            })
-        offset += 100
-        if offset >= d.get("totalFound", 0):
-            break
-    return out
-
-
-def smartrecruiters_description(detail_url: str) -> str:
-    d = net.get_json(detail_url)
-    secs = (d.get("jobAd") or {}).get("sections") or {}
-    parts = [f"{(secs.get(k) or {}).get('title', '')}\n{html_to_text((secs.get(k) or {}).get('text'))}"
-             for k in ("jobDescription", "qualifications", "additionalInformation")]
-    return "\n\n".join(p for p in parts if p.strip())[:9000]
 
 
 # ---------- Workday (undocumented public endpoint used by *.myworkdayjobs.com career sites) ----------
