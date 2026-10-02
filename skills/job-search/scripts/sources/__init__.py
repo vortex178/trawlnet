@@ -14,54 +14,15 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 
-from common import HOME, UA, age_days, html_to_text, parse_date
+from common import HOME, UA, html_to_text, parse_date
 
 from . import net
-
-
-# ---------- We Work Remotely ----------
-
-def fetch_wwr(feed: str) -> list:
-    url = f"https://weworkremotely.com/{feed}.rss"
-    root = ET.fromstring(net.get(url))
-    out = []
-    for it in root.iter("item"):
-        g = lambda tag: (it.findtext(tag) or "").strip()  # noqa: E731
-        company, _, title = g("title").partition(":")
-        if not title:
-            company, title = "", company
-        out.append({
-            "source": "wwr", "source_id": g("guid") or g("link"),
-            "title": title.strip(), "company": company.strip(),
-            "location": "Remote", "remote": True,
-            "region_text": g("region"), "eligible_countries": g("country"),
-            "posted": parse_date(g("pubDate")), "expires": parse_date(g("expires_at")), "salary_text": "",
-            "url": g("link"), "description": html_to_text(g("description")),
-        })
-    return out
-
-
-# ---------- Remote OK (no key; terms: credit Remote OK and link to the original listing) ----------
-
-def fetch_remoteok(_=None) -> list:
-    d = net.get_json("https://remoteok.com/api")
-    out = []
-    for j in d if isinstance(d, list) else []:
-        if not isinstance(j, dict) or not j.get("position"):
-            continue  # first element is the legal notice
-        lo, hi = j.get("salary_min") or 0, j.get("salary_max") or 0
-        out.append({
-            "source": "remoteok", "source_id": str(j.get("id", "")),
-            "title": j.get("position", ""), "company": j.get("company", ""),
-            "location": "Remote", "remote": True, "region_text": j.get("location") or "", "eligible_countries": "",
-            "posted": parse_date(j.get("date")), "salary_text": f"USD {lo} - {hi} per year" if lo and hi else "",
-            "url": j.get("url", ""), "apply_url": j.get("apply_url") or "",
-            "description": html_to_text(j.get("description")),
-        })
-    return out
+from .wwr import fetch_wwr
+from .remoteok import fetch_remoteok
+from .hn import fetch_hn
+from .text import ROLE
 
 
 # ---------- Alignerr (AI-training contract roles; public /api/jobs used by alignerr.com/jobs) ----------
@@ -160,46 +121,6 @@ def fetch_adzuna(cfg: dict) -> list:
                 "salary_text": sal, "job_type": " ".join(filter(None, [j.get("contract_type"), j.get("contract_time")])),
                 "url": j.get("redirect_url", ""), "description": text,
                 "detail_url": f"https://{az.get('details_domain', 'www.adzuna.com')}/details/{j['id']}",
-            })
-    return out
-
-
-# ---------- Hacker News "Ask HN: Who is hiring?" (monthly thread, Algolia API) ----------
-
-def fetch_hn(cfg: dict) -> list:
-    s = net.get_json("https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&hitsPerPage=10")
-    story = next((h for h in s.get("hits", []) if "who is hiring" in (h.get("title") or "").lower()), None)
-    if not story or (age_days(parse_date(story.get("created_at"))) or 0) > 35:
-        return []
-    item = net.get_json(f"https://hn.algolia.com/api/v1/items/{story['objectID']}")
-    out, places = [], "|".join(re.escape(p) for p in cfg["pack"]["country_places"])
-    for c in item.get("children") or []:
-        text = html_to_text(c.get("text"))
-        if not text:
-            continue
-        head = text.split("\n", 1)[0]
-        parts = [p.strip() for p in head.split("|") if p.strip()]
-        if len(parts) < 2:
-            continue
-        company = parts[0][:80]
-        loc_like = re.compile(r"^\s*(remote|onsite|on-site|hybrid|full[- ]time|part[- ]time|contract)\b", re.I)
-        if loc_like.search(company):
-            continue  # malformed header (company slot holds a location/type)
-        if _ROLE.search(company) and not any(_ROLE.search(p) for p in parts[1:]):
-            continue  # company slot holds the role and no company is given
-        role_part = next((p for p in parts[1:] if _ROLE.search(p)), parts[1])
-        if len(role_part.split()) > 12 or re.search(r"\b(we|we're|we are|looking|join)\b", role_part, re.I):
-            continue  # a sentence, not a role list
-        loc = "; ".join(p for p in parts[1:] if p is not role_part and re.search(
-            rf"remote|onsite|on-site|hybrid|\b({places})\b|usa|us\b|uk|europe|"
-            r"worldwide|global|anywhere|[A-Z][a-z]+, [A-Z]{2}\b", p, re.I))[:120]
-        for title in [t.strip() for t in role_part.split(",") if t.strip()][:5]:
-            out.append({
-                "source": "hn", "source_id": f"{c['id']}:{title}", "title": title[:120], "company": company,
-                "location": loc or "Unspecified", "remote": bool(re.search(r"remote", loc, re.I)),
-                "region_text": "", "eligible_countries": "", "posted": parse_date(c.get("created_at")),
-                "salary_text": "", "url": f"https://news.ycombinator.com/item?id={c['id']}",
-                "description": text[:9000],
             })
     return out
 
@@ -448,11 +369,6 @@ _GENERIC = {"apply", "apply now", "view", "view job", "view details", "learn mor
             "jobs", "see all jobs", "open positions", "view all", "join us", "see openings", "details", "know more"}
 
 
-_ROLE = re.compile(r"\b(engineer|developer|sde|sre|devops|architect|analyst|scientist|manager|lead|head|director|"
-                   r"designer|consultant|specialist|associate|executive|officer|administrator|admin|intern|"
-                   r"programmer|tester|qa|researcher|recruiter|representative|pentester|trainee)\b", re.I)
-
-
 _JOB_HOSTS = re.compile(r"(jobs\.gem\.com|turbohire\.co|keka\.com|freshteam\.com|zohorecruit\.|lever\.co|greenhouse\.io|"
                         r"ashbyhq\.com|workable\.com|darwinbox\.|smartrecruiters\.com|myworkdayjobs\.com|recruitee\.com|"
                         r"breezy\.hr|jobvite\.com|instahyre\.com|teamtailor\.com|hirist\.|cutshort\.io|wellfound\.com)", re.I)
@@ -477,7 +393,7 @@ def _job_links(pairs, page_url: str) -> list:
         path = urllib.parse.urlparse(url).path
         if (not url.startswith("http") or url.rstrip("/") == page_url.rstrip("/") or url in seen
                 or not (_JOB_PATH.search(path) or (_JOB_HOSTS.search(url) and len(path.strip("/").split("/")) >= 2))
-                or not (4 <= len(title) <= 120) or not _ROLE.search(title)):
+                or not (4 <= len(title) <= 120) or not ROLE.search(title)):
             continue
         seen.add(url)
         out.append((title, url, loc))
@@ -489,7 +405,7 @@ def _text_titles(md: str, page_url: str) -> list:
     out, seen = [], set()
     for line in md.splitlines():
         s = _clean(re.sub(r"^\s*[-*#>\d.]+\s*", "", line))
-        if (4 <= len(s) <= 70 and len(s.split()) <= 9 and _ROLE.search(s) and not re.search(r"[.!?:;]$|\(|http", s)
+        if (4 <= len(s) <= 70 and len(s.split()) <= 9 and ROLE.search(s) and not re.search(r"[.!?:;]$|\(|http", s)
                 and s[0].isupper() and s.lower() not in seen and not re.search(r"\b(we|our|you|your|join|team of)\b", s, re.I)):
             seen.add(s.lower())
             out.append((s, page_url, ""))
