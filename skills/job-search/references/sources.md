@@ -9,8 +9,9 @@
      the page's own Origin/Referer) — the endpoints the public career sites use. Workday is filtered server-side to
      the pack's country (country facet, else location-facet values naming the pack's `country_places`); ≤10 pages
      of 20; descriptions fetched only for shortlisted jobs. Undocumented; may change without notice.
-     Also opt-in: Atlassian job descriptions come from `https://www.atlassian.com/endpoint/careers/listings` (its career pages
-     are JS-rendered); one request per run, only for shortlisted Atlassian jobs.
+     Also opt-in: Atlassian's whole board (titles, locations, full text) comes from
+     `https://www.atlassian.com/endpoint/careers/listings` (its career pages are JS-rendered), one free request per run,
+     used for a `custom` company whose `careers_url` is on atlassian.com/company/careers instead of a Firecrawl scrape.
 2. Indeed connector (optional; claude.ai connector) via the `job-fetcher` (search) and `job-scorer` (details).
    Max 10 results per call, no pagination or date filter (freshness enforced by script on "Posted on").
    Job IDs are session-scoped and the short URLs change per call → never use either as a persistent id;
@@ -74,7 +75,7 @@ With `exclude_contract: true` the source is not fetched at all.
 
 ## Contract roles (`exclude_contract: true`)
 `filter` rejects (reason `contract`) records whose structured employment type says contract/freelance/temporary/
-fixed-term (`job_type`: Indeed, Adzuna, Lever, Ashby, Workable, SmartRecruiters) or whose
+fixed-term (`job_type`: Indeed, Adzuna, Lever, Ashby, Workable, SmartRecruiters, Atlassian when it states one) or whose
 title does ("Smart Contract Engineer" is not matched). Boards with no such field (Greenhouse, HN, WWR, Workday…) are only
 caught by title; the scorer also gets a context line and fails the `deal_breaker` gate when the JD says so.
 

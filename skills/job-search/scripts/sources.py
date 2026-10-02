@@ -581,7 +581,18 @@ def _looks_like_jd(text: str) -> bool:
 
 
 _ATLASSIAN_JOB = re.compile(r"https?://(?:www\.)?atlassian\.com/company/careers/details/(\d+)")
+_ATLASSIAN_CAREERS = re.compile(r"https?://(?:www\.)?atlassian\.com/company/careers", re.I)
 _atlassian_cache: dict = {}
+
+
+def _atlassian_listings() -> list:
+    if "jobs" not in _atlassian_cache:  # one request per run covers the job list and every description
+        _atlassian_cache["jobs"] = _get_json("https://www.atlassian.com/endpoint/careers/listings")
+    return _atlassian_cache["jobs"]
+
+
+def _atlassian_text(job: dict) -> str:
+    return html_to_text("\n".join(job.get(k) or "" for k in ("overview", "responsibilities", "qualifications")))
 
 
 def atlassian_description(url: str) -> str:
@@ -590,10 +601,29 @@ def atlassian_description(url: str) -> str:
     m = _ATLASSIAN_JOB.match(url)
     if not m or not _cfg()["sources"].get("undocumented_ats"):
         return ""
-    if "jobs" not in _atlassian_cache:  # one request per run covers every Atlassian job
-        _atlassian_cache["jobs"] = _get_json("https://www.atlassian.com/endpoint/careers/listings")
-    job = next((j for j in _atlassian_cache["jobs"] if str(j.get("id")) == m.group(1)), None)
-    return html_to_text("\n".join(job.get(k) or "" for k in ("overview", "responsibilities", "qualifications"))) if job else ""
+    job = next((j for j in _atlassian_listings() if str(j.get("id")) == m.group(1)), None)
+    return _atlassian_text(job) if job else ""
+
+
+def _atlassian_location(entry: str) -> str:
+    """'Bengaluru - India -   Bengaluru,  560071 India' -> 'Bengaluru (India)'; 'Remote - ...' entries stay as listed."""
+    parts = [p.strip() for p in entry.split(" - ")]
+    return entry.strip() if parts[0] == "Remote" or len(parts) < 2 else f"{parts[0]} ({parts[1]})"
+
+
+def fetch_atlassian(company: dict) -> list:
+    """The whole board, with full text, from Atlassian's listings endpoint (undocumented: opt-in). The careers page
+    itself is JS-rendered, so without this it costs a Firecrawl credit per scrape and yields no locations."""
+    out = []
+    for j in _atlassian_listings():
+        url = f"https://www.atlassian.com/company/careers/details/{j['id']}"
+        out.append({
+            "source": "custom", "source_id": url, "title": j.get("title", ""), "company": company["name"],
+            "location": "; ".join(_atlassian_location(x) for x in j.get("locations") or []), "remote": None,
+            "region_text": "", "eligible_countries": "", "posted": None, "salary_text": "",
+            "job_type": j.get("type") or "", "url": url, "description": _atlassian_text(j)[:9000], "detail_url": url,
+        })
+    return out
 
 
 _WORKABLE_JOB = re.compile(r"https?://apply\.workable\.com/(?:([\w-]+)/)?j/(\w+)")
@@ -741,7 +771,8 @@ def fetch_all(cfg: dict, companies: list, budget=None) -> tuple:
                 tasks.append((f"{c['ats']}:{c['name']}", fn, c))
     customs = [c for c in companies if c.get("ats") == "custom" and c.get("careers_url") and c.get("active", True)] \
         if cfg["sources"].get("ats") else []
-    tasks += [(f"custom:{c['name']}", fetch_custom_free, c) for c in customs]
+    tasks += [(f"custom:{c['name']}", fetch_atlassian if undocumented and _ATLASSIAN_CAREERS.match(c["careers_url"])
+               else fetch_custom_free, c) for c in customs]
     records, counts, errors = [], {}, []
     with ThreadPoolExecutor(max_workers=8) as ex:
         futs = {ex.submit(fn, arg): (label, arg) for label, fn, arg in tasks}

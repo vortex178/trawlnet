@@ -43,7 +43,7 @@ sources:
   remoteok: true                 # remoteok.com/api (credit Remote OK, link to the original listing)
   hn: true                       # latest "Ask HN: Who is hiring?" thread (Algolia API)
   ats: true                      # public Greenhouse/Lever/Ashby/Workable/SmartRecruiters boards (data/companies.json)
-  undocumented_ats: false        # opt-in: Workday/Darwinbox career-site endpoints, Atlassian job text (undocumented, may change)
+  undocumented_ats: false        # opt-in: Workday/Darwinbox career-site endpoints, the Atlassian board (undocumented, may change)
   alignerr: false                # opt-in: Alignerr AI-training CONTRACT roles (undocumented endpoint)
   adzuna: false                  # needs a free key in .secrets/adzuna.json {app_id, app_key}
 

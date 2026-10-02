@@ -123,6 +123,53 @@ class DescriptionTest(unittest.TestCase):
             self.assertEqual(g.call_count, 1)  # one request covers every job in the run
         sources._atlassian_cache.clear()
 
+    def test_atlassian_fetcher_maps_the_whole_board(self):
+        sources._atlassian_cache.clear()
+        listing = [{"id": 27432, "title": "Senior Backend Software Engineer", "type": "Full-Time",
+                    "locations": ["Bengaluru - India -   Bengaluru,  560071 India", "Remote - India - Remote", "Remote - Remote"],
+                    "overview": "<p>Build things.</p>", "responsibilities": "<ul><li>Own services</li></ul>",
+                    "qualifications": "<p>5 years</p>"},
+                   {"id": 7, "title": "Contract Engineer", "type": "Contract", "locations": ["Canada -     Canada"]},
+                   {"id": 8, "title": "Bare"}]
+        co = {"name": "Atlassian", "ats": "custom", "careers_url": "https://www.atlassian.com/company/careers/all-jobs"}
+        with mock.patch.object(sources, "_get_json", return_value=listing) as g:
+            out = sources.fetch_atlassian(co)
+            sources.fetch_atlassian(co)
+            self.assertEqual(g.call_count, 1)
+        sources._atlassian_cache.clear()
+        a, b, c = out
+        self.assertEqual((a["source"], a["company"], a["title"], a["url"], a["job_type"]),
+                         ("custom", "Atlassian", "Senior Backend Software Engineer",
+                          "https://www.atlassian.com/company/careers/details/27432", "Full-Time"))
+        self.assertEqual(a["location"], "Bengaluru (India); Remote - India - Remote; Remote - Remote")
+        self.assertIn("Own services", a["description"])
+        self.assertEqual((b["job_type"], b["location"], b["description"]), ("Contract", "Canada (Canada)", ""))
+        self.assertEqual((c["location"], c["job_type"]), ("", ""))
+
+    def test_fetch_all_uses_the_atlassian_listing_only_when_opted_in(self):
+        sources._atlassian_cache.clear()
+        co = [{"name": "Atlassian", "ats": "custom", "careers_url": "https://www.atlassian.com/company/careers/all-jobs"}]
+        listing = [{"id": 1, "title": "Backend Engineer", "locations": ["Bengaluru - India - X"], "overview": "<p>x</p>"}]
+        for opt_in, expect in ((True, "fetch_atlassian"), (False, "fetch_custom_free")):
+            with mock.patch.object(sources, "fetch_atlassian", return_value=[]) as atl, \
+                    mock.patch.object(sources, "fetch_custom_free", return_value=[]) as free:
+                sources.fetch_all({"sources": {"ats": True, "undocumented_ats": opt_in}}, co)
+            self.assertEqual({"fetch_atlassian": atl, "fetch_custom_free": free}[expect].call_count, 1)
+        with mock.patch.object(sources, "_get_json", return_value=listing):
+            recs, counts, errors = sources.fetch_all({"sources": {"ats": True, "undocumented_ats": True}}, co, FakeBudget())
+        sources._atlassian_cache.clear()
+        self.assertEqual((counts, errors, len(recs)), ({"custom:Atlassian": 1}, [], 1))
+
+    def test_atlassian_endpoint_failure_falls_back_to_firecrawl(self):
+        sources._atlassian_cache.clear()
+        co = [{"name": "Atlassian", "ats": "custom", "careers_url": "https://www.atlassian.com/company/careers/all-jobs"}]
+        b = FakeBudget({co[0]["careers_url"]: "[Backend Engineer](/company/careers/details/9)"})
+        with mock.patch.object(sources, "_get_json", side_effect=OSError("down")):
+            recs, counts, errors = sources.fetch_all({"sources": {"ats": True, "undocumented_ats": True},
+                                                      "firecrawl": {"shortlist_reserve": 0}}, co, b)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual([r["title"] for r in recs], ["Backend Engineer"])
+
     def test_exclude_contract_skips_the_alignerr_source(self):
         cfg = {"sources": {"alignerr": True}, "exclude_contract": True}
         with mock.patch.object(sources, "fetch_alignerr") as al:
