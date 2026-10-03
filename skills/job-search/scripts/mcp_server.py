@@ -2,7 +2,8 @@
 
 Speaks the initialize-handshake protocol revisions (2024-11-05 .. 2025-11-25). Modern clients probe with
 server/discover first; the method-not-found reply makes them fall back to initialize.
-Started by Claude Code from the plugin's .mcp.json in the session's cwd; the data folder is found like the CLI finds it.
+Started by Claude Code from the plugin's plugin.json (mcpServers) in the session's cwd; the data folder is found like
+the CLI finds it.
 """
 from __future__ import annotations
 
