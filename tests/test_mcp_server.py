@@ -32,7 +32,8 @@ class Handshake(unittest.TestCase):
         self.assertEqual(r["result"]["protocolVersion"], srv.VERSIONS[0])
 
     def test_capabilities_follow_registries(self):
-        with mock.patch.dict(srv.RESOURCES, clear=True), mock.patch.dict(srv.PROMPTS, clear=True):
+        with mock.patch.dict(srv.RESOURCES, clear=True), mock.patch.dict(srv.PROMPTS, clear=True), \
+                mock.patch.object(srv, "RESOURCE_SOURCES", []):
             self.assertEqual(set(rpc("initialize", {})["result"]["capabilities"]), {"tools"})
         with mock.patch.dict(srv.RESOURCES, {"x://a": ({"uri": "x://a", "name": "a"}, lambda: "")}), \
                 mock.patch.dict(srv.PROMPTS, {"p": ({"name": "p"}, lambda a: "")}):
@@ -145,8 +146,8 @@ class Tools(unittest.TestCase):
 
 class ResourcesPrompts(unittest.TestCase):
     def setUp(self):
-        for reg in (srv.RESOURCES, srv.PROMPTS):
-            patch = mock.patch.dict(reg, clear=True)
+        for patch in (mock.patch.dict(srv.RESOURCES, clear=True), mock.patch.dict(srv.PROMPTS, clear=True),
+                      mock.patch.object(srv, "RESOURCE_SOURCES", [])):
             patch.start()
             self.addCleanup(patch.stop)
         srv.RESOURCES["trawlnet://a"] = ({"uri": "trawlnet://a", "name": "a"}, lambda: "# A")
