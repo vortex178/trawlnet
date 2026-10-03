@@ -23,9 +23,9 @@ Follow `references/setup.md`.
 Follow `references/profiles.md`. Always get the user's review; salary floors and deal-breakers come from the user only.
 
 ### run  (user-triggered; `--dry` = steps 1–2 fetch/filter only, no LLM scoring, no paid credits)
-0. `python3 "<skill>/scripts/setup.py" link` (refreshes ./js and agents after plugin updates; if it changed agents,
-   tell the user to restart the session before the next run). If the `get_usage` session tool is available, note
-   the plan's 5-hour and weekly `percentUsed` (and reset time).
+0. `python3 "<skill>/scripts/setup.py" link` (refreshes ./js and agents after plugin updates; if it changed agents
+   or registered the folder, tell the user to restart the session before the next run). If the `get_usage` session
+   tool is available, note the plan's 5-hour and weekly `percentUsed` (and reset time).
 1. `./js plan && ./js feeds` (one bash call; `./js feeds --dry` for a dry run). Stop if plan reports no profiles.
 2. Spawn `job-fetcher` with prompt: `DATE=<YYYY-MM-DD>` (today). Wait for it. (Dry run: instead run
    `./js filter --date <DATE> --quiet`, report its stats line, and stop.)

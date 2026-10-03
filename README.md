@@ -79,6 +79,8 @@ See [`examples/data-folder`](examples/data-folder) for a complete (fictional) da
 ## MCP server
 
 The plugin also starts a local MCP server (`trawlnet`, stdio, no extra install) for the data folder it is started in.
+It runs on the folder's Python env once setup has registered the folder (`./js setup link`, part of every run;
+restart Claude Code after the first registration).
 Read tools: `status`, `search_jobs`, `get_job`, `list_runs`, `get_digest`, `query_tracker` (the tracker, read-only).
 Action tools: `fetch_job_description` (fetches one public job URL) and `track_job` (adds one tracker row); Claude Code
 asks before each call. Resources expose your profiles, `master` facts, scoring context and digests; prompts
