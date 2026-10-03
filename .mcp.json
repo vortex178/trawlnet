@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "trawlnet": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/skills/job-search/scripts/mcp_server.py"]
+    }
+  }
+}

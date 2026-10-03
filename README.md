@@ -76,6 +76,14 @@ Power users: `./js status`, `./js setup doctor`, `./js tracker check`, `./js fil
 
 See [`examples/data-folder`](examples/data-folder) for a complete (fictional) data folder after one run.
 
+## MCP server
+
+The plugin also starts a local MCP server (`trawlnet`, stdio, no extra install) for the data folder it is started in.
+Read tools: `status`, `search_jobs`, `get_job`, `list_runs`, `get_digest`, `query_tracker` (the tracker, read-only).
+Action tools: `fetch_job_description` (fetches one public job URL) and `track_job` (adds one tracker row); Claude Code
+asks before each call. Resources expose your profiles, `master` facts, scoring context and digests; prompts
+`tailor_for_job` and `weekly_review`. Job text is returned as untrusted data. The full `run` stays a skill command.
+
 ## Costs
 
 Defaults: shortlist 15 jobs, scorer batches of 12. Rough per-run usage:
@@ -100,12 +108,12 @@ as follows:
 | --- | --- | --- |
 | Claude (your Claude Code session and its subagents) | job-description text, your profile and resume facts, job titles | scoring, title checks, tailoring |
 | Job boards: Greenhouse, Lever, Ashby, Workable, SmartRecruiters, We Work Remotely, Remote OK, Hacker News (Algolia) | public listing requests (company board name, feed URL); no personal data | each run |
-| Company career pages and other job pages | plain GET requests for career/jobs pages of tracked companies, of companies behind We Work Remotely listings and of seed-list companies (`discover`); for shortlisted jobs, links found in Hacker News / Remote OK listings and Adzuna / Workable detail pages; for `tailor`/`track`, the job URL you paste (plus a Greenhouse/Lever/Ashby API call for it); no personal data | each run (shortlisted jobs), `discover`, `tailor`/`track` |
+| Company career pages and other job pages | plain GET requests for career/jobs pages of tracked companies, of companies behind We Work Remotely listings and of seed-list companies (`discover`); for shortlisted jobs, links found in Hacker News / Remote OK listings and Adzuna / Workable detail pages; for `tailor`/`track` and the MCP `fetch_job_description` tool, the job URL you paste or Claude passes (plus a Greenhouse/Lever/Ashby API call for it); no personal data | each run (shortlisted jobs), `discover`, `tailor`/`track` |
 | Workday, Darwinbox, Atlassian, Alignerr | the same kind of public listing request, and for Alignerr your configured `alignerr_searches` terms (`discover` also probes Workday/Darwinbox hosts when validating seed companies) | fetching only if you opt in (`sources.undocumented_ats`, `sources.alignerr`) |
 | Adzuna | your search terms, locations and country, with your own API key | only if you enable it |
 | Firecrawl | URLs that need rendering: career pages of companies you track, shortlisted-job detail pages (including Adzuna), links found in Hacker News / Remote OK listings and job URLs you paste; sent with your own API key and country | only if you enable it |
 | Indeed (Claude connector) | search terms and location from your queries | only if the connector is enabled in your Claude account |
-| Google (Sheets API and OAuth) | tracker rows (default columns: company, role, score, apply URL, profile, status, plus any you add in `tracker.columns`) to your own sheet, authenticated with your own service account | only if you choose the Sheets tracker |
+| Google (Sheets API and OAuth) | tracker rows (default columns: company, role, score, apply URL, profile, status, plus any you add in `tracker.columns`) to your own sheet, authenticated with your own service account; the MCP `query_tracker` tool reads them back | only if you choose the Sheets tracker |
 
 Direct requests to job boards and career pages carry the `trawlnet` User-Agent and your IP address; Firecrawl and Google receive your own credentials, and Firecrawl fetches the pages it renders from its own servers. Nothing else is uploaded or shared, and your data is never sent to the plugin's author. Keys are read only from
 files in `.secrets/` and are never written to run files. Keep your data folder out of public repos (setup
