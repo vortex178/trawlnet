@@ -12,6 +12,7 @@ FIELDS. Rows produced while a backend is unavailable stay queued and are pushed 
 from __future__ import annotations
 
 import csv
+import functools
 import json
 import sys
 import urllib.parse
@@ -27,6 +28,26 @@ API = "https://sheets.googleapis.com/v4/spreadsheets"
 
 class Unavailable(Exception):
     """Backend can't be reached now (missing key, no access); rows stay queued."""
+
+
+def _auth_errors() -> tuple:
+    try:
+        from google.auth.exceptions import GoogleAuthError
+    except ImportError:  # no google-auth: _session raises ImportError first
+        return ()
+    return (GoogleAuthError,)
+
+
+def _auth_unavailable(fn):
+    """google-auth failures (expired or revoked key) surface on the first request: report them as Unavailable, so
+    flush keeps the rows queued and the CLI and MCP tools say why instead of crashing."""
+    @functools.wraps(fn)
+    def wrapped(*a, **kw):
+        try:
+            return fn(*a, **kw)
+        except _auth_errors() as e:
+            raise Unavailable(f"Google auth failed: {e.args[0] if e.args else e}") from e
+    return wrapped
 
 
 def tracker_cfg(cfg: dict) -> dict:
@@ -95,15 +116,20 @@ class CsvBackend:
     def read_rows(self) -> list:
         if not self.path.exists():
             return []
-        with self.path.open(newline="") as f:
-            return _records(self.cfg, list(csv.reader(f)))
+        return _records(self.cfg, self._read())
+
+    def _read(self) -> list:
+        try:
+            with self.path.open(newline="") as f:
+                return list(csv.reader(f))
+        except csv.Error as e:  # e.g. a NUL in the file (Python <= 3.10)
+            raise Unavailable(f"{rel(self.path)} is unreadable: {e}")
 
     def check(self):
         if not self.path.exists():
             print(f"{rel(self.path)} not created yet (created on first publish or `init`)")
             return
-        with self.path.open(newline="") as f:
-            rows = list(csv.reader(f))
+        rows = self._read()
         print(f"file: {rel(self.path)}, rows incl. header: {len(rows)}")
         print("header OK" if rows and rows[0] == header(self.cfg) else f"HEADER MISMATCH: {rows[0] if rows else []}")
 
@@ -148,6 +174,7 @@ class SheetsBackend:
     def _range(tab: dict, a1: str) -> str:
         return urllib.parse.quote(f"'{tab['title']}'!{a1}", safe="")
 
+    @_auth_unavailable
     def append(self, rows: list) -> str:
         sess, _ = self._session()
         tab = self._tab(sess)
@@ -158,12 +185,14 @@ class SheetsBackend:
             raise Unavailable(f"append failed: {r.status_code} {r.text[:200]}")
         return f"appended to tab '{tab['title']}'"
 
+    @_auth_unavailable
     def read_rows(self) -> list:
         sess, _ = self._session()
         r = sess.get(f"{API}/{self.g['sheet_id']}/values/{self._range(self._tab(sess), f'A:{self.last_col}')}")
         r.raise_for_status()
         return _records(self.cfg, r.json().get("values") or [])
 
+    @_auth_unavailable
     def check(self):
         sess, email = self._session()
         tab = self._tab(sess)
@@ -176,6 +205,7 @@ class SheetsBackend:
         print(f"tab: '{tab['title']}' (gid {tab['sheetId']}), rows incl. header: {len(n)}")
         print("header OK" if got == header(self.cfg) else f"HEADER MISMATCH: {got}")
 
+    @_auth_unavailable
     def init(self):
         sess, email = self._session()
         tab = self._tab(sess)

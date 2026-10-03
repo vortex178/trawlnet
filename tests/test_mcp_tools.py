@@ -69,6 +69,12 @@ class ReadTools(unittest.TestCase):
         self.assertEqual(keys(limit=1), ["a"])
         self.assertEqual(keys(limit=0), ["a"])  # clamped to 1
         self.assertEqual(call("search_jobs", company="no-such")["count"], 0)
+        self.assertEqual(keys(status=""), ["a", "b", "c"])  # empty = any
+        db.mark_seen([{"key": "d", "status": "scored", "company": "100% Remote_Co", "first_seen": "2026-09-06"}],
+                     "2026-09-06")
+        self.assertEqual(keys(company="%"), ["d"])  # LIKE wildcards match literally
+        self.assertEqual(keys(company="e_c"), ["d"])
+        self.assertEqual(keys(company="h_r"), [])
 
     def test_search_rejects_bad_arguments(self):
         self.assertIn("since must be", call("search_jobs", since="yesterday"))
@@ -92,6 +98,14 @@ class ReadTools(unittest.TestCase):
     def test_list_runs(self):
         self.assertEqual([r["id"] for r in call("list_runs")["runs"]], ["2026-09-06", "2026-09-02"])
         self.assertEqual(call("list_runs", limit=1)["runs"][0]["stats"], {"scored": 5})
+        with mock.patch.object(mcp_tools, "MAX_LIMIT", 1):
+            self.assertEqual(len(call("list_runs", limit=50)["runs"]), 1)  # capped
+
+    def test_null_json_columns_read_as_none(self):  # rows written before a column was filled
+        db.connect().execute("UPDATE scores SET gates_json = NULL WHERE run = '2026-09-06'")
+        db.connect().execute("UPDATE runs SET stats_json = NULL WHERE id = '2026-09-06'")
+        self.assertIsNone(call("get_job", key="a")["scores"][0]["gates"])
+        self.assertIsNone(call("list_runs", limit=1)["runs"][0]["stats"])
 
     def test_get_digest(self):
         (self.dir / "digests").mkdir()
@@ -186,6 +200,8 @@ class ReadTools(unittest.TestCase):
             "http://224.0.0.1/": "224.0.0.1",
             "http://[::ffff:10.0.0.1]/": "::ffff:10.0.0.1", "http://127.0.0.1.nip.io/": "127.0.0.1",
             "https://mixed.example/": ("93.184.216.34", "10.1.1.1"),  # one private answer is enough to refuse
+            "https://x.example/a\x00b": "93.184.216.34", "https://x.example/a\rb": "93.184.216.34",
+            "http://127.0.0.1\t.x.example/": "93.184.216.34",  # urlsplit would drop the tab
         }
         for url, ips in bad.items():
             answers = [ips] if isinstance(ips, str) else ips
@@ -197,6 +213,9 @@ class ReadTools(unittest.TestCase):
         self.assertIn("too long", call("fetch_job_description", url="https://x.example/" + "a" * 2100))
         with mock.patch.object(mcp_tools.socket, "getaddrinfo", side_effect=OSError("nodename nor servname")):
             self.assertIn("cannot resolve nope.example", call("fetch_job_description", url="https://nope.example/"))
+        with mock.patch.object(mcp_tools, "fetch_job", return_value=self.JOB) as fetch, self.resolves("8.8.8.8"):
+            call("fetch_job_description", url="https://x.example/Senior Engineer")  # raw space from a listing
+            self.assertEqual(fetch.call_args[0][0], "https://x.example/Senior%20Engineer")
         for url in ("http://8.8.8.8/job", "https://boards.example:443/j?gh_jid=5", "http://[2606:4700::1111]/"):
             with mock.patch.object(mcp_tools, "fetch_job", return_value=self.JOB), \
                     self.resolves("8.8.8.8", "2606:4700::1111"):
@@ -236,7 +255,8 @@ class ReadTools(unittest.TestCase):
                         ({"url": "http://localhost/a"}, "public"), ({"url": "http://10.0.0.5/a"}, "public"),
                         ({"role": ["a"]}, "role must be a string"),
                         ({"role": "x" * 301}, "at most 300"), ({"company": "a\nb"}, "one line"),
-                        ({"location": "x\x00"}, "one line"), ({"url": "https://x.example/" + "a" * 2100}, "too long")):
+                        ({"location": "x\x00"}, "one line"), ({"url": "https://x.example/a\nb"}, "control"),
+                        ({"url": "https://x.example/" + "a" * 2100}, "too long")):
             self.assertIn(msg, self._track(**kw))
         self.assertEqual(call("query_tracker")["total"], 0)
         self.assertEqual(call("search_jobs", company="acme")["count"], 0)

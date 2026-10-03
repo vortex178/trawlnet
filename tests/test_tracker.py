@@ -83,6 +83,13 @@ class CsvBackendTest(unittest.TestCase):
         self.assertEqual(rows[0], {"company": "A", "role": "R", "score": 80, "url": "u", "status": "applied"})
         self.assertEqual((rows[1]["company"], rows[1]["score"], len(rows)), ("B", "n/a", 2))
 
+    def test_unreadable_csv_is_unavailable(self):
+        self.b.append([{"company": "A"}])
+        with mock.patch.object(tracker.csv, "reader", side_effect=csv.Error("line contains NUL")):
+            for method in (self.b.read_rows, self.b.check):
+                with self.assertRaisesRegex(tracker.Unavailable, "unreadable: line contains NUL"):
+                    method()
+
     def test_describe(self):
         self.assertEqual(self.b.describe(), "tracker: csv tracker-csv2.csv")
         tracker.write_jsonl(tracker.PENDING_ROWS_PATH, [])
@@ -205,6 +212,29 @@ class SheetsBackendTest(unittest.TestCase):
         self.assertEqual([r["company"] for r in rows], ["a", "b"])  # header skipped
         self.assertEqual(rows[0], {"company": "a", "role": "", "score": "", "url": "", "status": ""})
         self.assertIn("/values/%27Jobs%27%21A%3AE", sess.calls[-1][1])
+
+    def test_auth_failure_is_unavailable_and_keeps_rows_queued(self):
+        class RefreshError(Exception):  # stands in for google.auth.exceptions.RefreshError
+            pass
+
+        class Expired(FakeSession):  # AuthorizedSession refreshes lazily: the first request raises
+            def get(self, url, **kw):
+                raise RefreshError("invalid_grant: Token has been expired or revoked.", {"error": "invalid_grant"})
+
+        b = self.make()
+        self.use(b, Expired())
+        mods = {"google.auth.exceptions": types.SimpleNamespace(GoogleAuthError=RefreshError)}
+        pending = HOME / "data" / "pending-auth-test.jsonl"
+        self.addCleanup(lambda: pending.unlink(missing_ok=True))
+        with mock.patch.dict(sys.modules, mods), mock.patch.object(tracker, "PENDING_ROWS_PATH", pending), \
+                mock.patch.object(tracker, "backend", return_value=b):
+            for call in (b.read_rows, b.check, b.init, lambda: b.append([{"company": "A"}])):
+                with self.assertRaisesRegex(tracker.Unavailable, r"^Google auth failed: invalid_grant: Token"):
+                    call()
+            tracker.queue_rows([{"company": "A"}])
+            self.assertEqual(tracker.flush(b.cfg)[:2], (0, 1))  # still queued, no traceback
+        with mock.patch.dict(sys.modules, {"google.auth.exceptions": None}):
+            self.assertEqual(tracker._auth_errors(), ())  # no google-auth: nothing extra to catch
 
     def test_check_reports_header(self):
         b = self.make(sheet_tab_gid=5)
