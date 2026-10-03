@@ -619,14 +619,15 @@ def update_claude_md(run: str, row: str, keep: int = 7) -> None:
     path.write_text(f"{head}{start}\n" + "\n".join(lines) + f"\n{end}{tail}")
 
 
-def cmd_fetch_url(a, cfg):
-    """Fetch a single ATS job via its public API; prints the jd path or FALLBACK."""
+def fetch_job(page_url: str, cfg: dict, date: str | None = None):
+    """One job's (title, company, location, description, canonical url) via its ATS API or a page fetch, else None.
+    Writes nothing except the Firecrawl ledger when a JS-rendered page needs a credit."""
     import urllib.request
-    url = a.url.split("?")[0].rstrip("/")
+    url = page_url.split("?")[0].rstrip("/")
     get = lambda u: json.loads(urllib.request.urlopen(  # noqa: E731
         urllib.request.Request(u, headers={"User-Agent": UA}), timeout=30).read())
     job = None
-    m = re.search(r"greenhouse\.io/(?:embed/job_app\?for=)?([\w-]+)/jobs/(\d+)", a.url)
+    m = re.search(r"greenhouse\.io/(?:embed/job_app\?for=)?([\w-]+)/jobs/(\d+)", page_url)
     if m:
         j = get(f"https://boards-api.greenhouse.io/v1/boards/{m[1]}/jobs/{m[2]}")
         job = (j["title"], j.get("company_name") or m[1], j["location"]["name"], html_to_text(j.get("content"), 20000), j["absolute_url"])
@@ -643,16 +644,22 @@ def cmd_fetch_url(a, cfg):
         j = next((x for x in board["jobs"] if x["id"] == ma[2]), None)
         if j:
             job = (j["title"], ma[1], j.get("location", ""), j.get("descriptionPlain", ""), j["jobUrl"])
-    if not job and "linkedin.com" not in a.url:
+    if not job and "linkedin.com" not in page_url:
         from firecrawl import Budget
         from sources import custom_description
-        body = custom_description(a.url, Budget(cfg, a.date))  # free fetch, Firecrawl only if JS-rendered
+        body = custom_description(page_url, Budget(cfg, date))  # free fetch, Firecrawl only if JS-rendered
         if len(body) >= 600:
-            job = ("(see description)", re.sub(r"^www\.", "", url.split("/")[2]), "", body, a.url)
+            job = ("(see description)", re.sub(r"^www\.", "", url.split("/")[2]), "", body, page_url)
+    return tuple(x.strip() if isinstance(x, str) else x for x in job) if job else None
+
+
+def cmd_fetch_url(a, cfg):
+    """Fetch a single ATS job via its public API; prints the jd path or FALLBACK."""
+    job = fetch_job(a.url, cfg, a.date)
     if not job:
         print(f"FALLBACK: could not fetch; use Indeed get_job_details or WebFetch for {a.url}")
         return
-    title, company, loc, body, canon = (x.strip() if isinstance(x, str) else x for x in job)
+    title, company, loc, body, canon = job
     write_context(cfg)
     slug = re.sub(r"[^a-z0-9]+", "-", f"{company}-{title}".lower()).strip("-")[:60]
     out = DATA / "tailoring" / slug
@@ -661,22 +668,30 @@ def cmd_fetch_url(a, cfg):
     print(f"JD {rel(out / 'jd.txt')} | {title} — {company} — {loc}")
 
 
+def track_job(cfg: dict, company: str, role: str, score: int, profile: str, url: str, location: str = "") -> dict:
+    """Append one job to the tracker and mark it seen; a job already seen is left alone."""
+    from tracker import flush, queue_rows
+    loc = location or ""
+    key = job_key(company, role, "remote" if "remote" in loc.lower() else norm(loc).strip()[:40])
+    if key in db.seen_keys():
+        return {"status": "already_seen", "key": key}
+    queue_rows([{"company": company, "role": role, "score": score, "url": url, "profile": profile,
+                 "location": loc, "posted": "", "source": "manual", "date_added": today(), "status": ""}])
+    db.mark_seen([{"key": key, "status": "tracked", "score": score, "profile": profile, "source": "manual",
+                   "company": company, "title": role, "location": loc, "url": url}])
+    pushed, pending, msg = flush(cfg)
+    return {"status": "tracked", "key": key, "pushed": pushed, "pending": pending, "message": msg}
+
+
 def cmd_track(a, cfg):
     """Add one job (e.g. from `tailor`) to the tracker and mark it seen."""
-    from tracker import flush, queue_rows
     if not all([a.company, a.role, a.url, a.profile]) or a.score is None:
         sys.exit("track needs --company --role --score --profile --location and the URL")
-    loc = a.location or ""
-    key = job_key(a.company, a.role, "remote" if "remote" in loc.lower() else norm(loc).strip()[:40])
-    if key in db.seen_keys():
-        print(f"already tracked/seen: {key}")
+    r = track_job(cfg, a.company, a.role, a.score, a.profile, a.url, a.location)
+    if r["status"] == "already_seen":
+        print(f"already tracked/seen: {r['key']}")
         return
-    queue_rows([{"company": a.company, "role": a.role, "score": a.score, "url": a.url, "profile": a.profile,
-                 "location": loc, "posted": "", "source": "manual", "date_added": today(), "status": ""}])
-    db.mark_seen([{"key": key, "status": "tracked", "score": a.score, "profile": a.profile, "source": "manual",
-                   "company": a.company, "title": a.role, "location": loc, "url": a.url}])
-    pushed, pending, msg = flush(cfg)
-    print(f"tracked {a.company} — {a.role}: {pushed} pushed, {pending} pending ({msg})")
+    print(f"tracked {a.company} — {a.role}: {r['pushed']} pushed, {r['pending']} pending ({r['message']})")
 
 
 def status_data(cfg) -> dict:

@@ -151,6 +151,104 @@ class ReadTools(unittest.TestCase):
             with mock.patch.object(mcp_tools.tracker.CsvBackend, "read_rows", side_effect=exc):
                 self.assertIn(f"tracker unavailable: {exc}", call("query_tracker"))
 
+    JOB = ("Backend Engineer", "Acme", "Remote", "Build things. " * 60, "https://boards.example/acme/1")
+
+    def test_fetch_job_description_returns_text_and_saves_nothing(self):
+        with mock.patch.object(mcp_tools, "fetch_job", return_value=self.JOB) as fetch, self.resolves("93.184.216.34"):
+            r = call("fetch_job_description", url=" https://boards.example/acme/1 ")
+        self.assertEqual(fetch.call_args[0][0], "https://boards.example/acme/1")
+        self.assertEqual((r["title"], r["company"], r["url"]), ("Backend Engineer", "Acme", self.JOB[4]))
+        self.assertTrue(r["description"].startswith("Build things."))
+
+    def test_fetch_job_description_failures_are_tool_errors(self):
+        with mock.patch.object(mcp_tools, "fetch_job", return_value=None), self.resolves("93.184.216.34"):
+            self.assertIn("no readable posting", call("fetch_job_description", url="https://x.example/j"))
+        for exc in (OSError("timed out"), KeyError("title"), TypeError("bad shape"), AttributeError("categories"),
+                    mcp_tools.http.client.IncompleteRead(b"")):
+            with mock.patch.object(mcp_tools, "fetch_job", side_effect=exc), self.resolves("93.184.216.34"):
+                err = call("fetch_job_description", url="https://x.example/j")
+                self.assertIn("could not fetch https://x.example/j", err)
+
+    @staticmethod
+    def resolves(*ips):
+        return mock.patch.object(mcp_tools.socket, "getaddrinfo",
+                                 return_value=[(2, 1, 6, "", (ip, 0)) for ip in ips])
+
+    def test_urls_must_be_public_http(self):
+        bad = {  # url -> what the name resolves to (the numeric forms are normalised by the resolver)
+            "file:///etc/passwd": "", "ftp://x.example/a": "", "//x.example": "", "http://u:p@x.example/": "",
+            "https://x.example:8443/": "", "https://x.example:99999/": "", "http://localhost/a": "",
+            "https://db.internal/a": "", "https://printer.local/": "",
+            "http://127.0.0.1/": "127.0.0.1", "http://2130706433/": "127.0.0.1", "http://0x7f000001/": "127.0.0.1",
+            "http://127.1/": "127.0.0.1", "http://localhost./": "127.0.0.1", "http://10.0.0.5/a": "10.0.0.5",
+            "http://169.254.169.254/latest": "169.254.169.254", "http://[::1]/": "::1",
+            "http://[::ffff:127.0.0.1]/": "::ffff:127.0.0.1", "http://100.100.1.1/": "100.100.1.1",
+            "http://224.0.0.1/": "224.0.0.1",
+            "http://[::ffff:10.0.0.1]/": "::ffff:10.0.0.1", "http://127.0.0.1.nip.io/": "127.0.0.1",
+            "https://mixed.example/": ("93.184.216.34", "10.1.1.1"),  # one private answer is enough to refuse
+        }
+        for url, ips in bad.items():
+            answers = [ips] if isinstance(ips, str) else ips
+            with mock.patch.object(mcp_tools, "fetch_job") as fetch, self.resolves(*answers):
+                self.assertIn("must ", call("fetch_job_description", url=url), url)
+                fetch.assert_not_called()
+        self.assertIn("url is required", call("fetch_job_description", url=5))
+        self.assertIn("url is required", call("fetch_job_description", url=""))
+        self.assertIn("too long", call("fetch_job_description", url="https://x.example/" + "a" * 2100))
+        with mock.patch.object(mcp_tools.socket, "getaddrinfo", side_effect=OSError("nodename nor servname")):
+            self.assertIn("cannot resolve nope.example", call("fetch_job_description", url="https://nope.example/"))
+        for url in ("http://8.8.8.8/job", "https://boards.example:443/j?gh_jid=5", "http://[2606:4700::1111]/"):
+            with mock.patch.object(mcp_tools, "fetch_job", return_value=self.JOB), \
+                    self.resolves("8.8.8.8", "2606:4700::1111"):
+                self.assertIn("title", call("fetch_job_description", url=url), url)
+
+    def _track(self, **kw):
+        self._tracker("")
+        patch = mock.patch.object(mcp_tools.tracker, "PENDING_ROWS_PATH", self.dir / "pending.jsonl")
+        patch.start()
+        self.addCleanup(patch.stop)
+        args = {"company": "Acme", "role": "Backend Engineer", "score": 72, "profile": "appsec",
+                "url": "https://boards.example/acme/1", "location": "Remote", **kw}
+        offline = mock.patch.object(mcp_tools.socket, "getaddrinfo", side_effect=OSError("offline"))
+        with offline:  # the URL is stored, never fetched
+            return call("track_job", **args)
+
+    def test_track_job_appends_row_and_marks_seen_once(self):
+        r = self._track()
+        self.assertEqual((r["status"], r["pushed"], r["pending"]), ("tracked", 1, 0))
+        self.assertEqual(call("search_jobs", status="tracked", company="acme")["jobs"][0]["key"], r["key"])
+        rows = call("query_tracker")["rows"]
+        self.assertEqual((rows[0]["company"], rows[0]["score"], rows[0]["status"]), ("Acme", 72, ""))
+        again = call("track_job", company="Acme", role="Backend Engineer", score=72, profile="appsec",
+                     url="https://boards.example/acme/1", location="Remote")
+        self.assertEqual(again, {"status": "already_seen", "key": r["key"]})
+        self.assertEqual(call("query_tracker")["total"], 1)
+
+    def test_track_job_blank_location_is_allowed(self):
+        for i, loc in enumerate(("  ", None)):
+            self.assertEqual(self._track(role=f"Role {i}", location=loc)["status"], "tracked")
+        self.assertIn("location must be a string", self._track(location=0))
+
+    def test_track_job_validates_input_before_writing(self):
+        for kw, msg in (({"score": 101}, "score must be"), ({"score": -1}, "score must be"),
+                        ({"score": "x"}, "integer"), ({"company": " "}, "required"),
+                        ({"profile": "nope"}, "unknown profile 'nope'"), ({"url": "file:///x"}, "http(s)"),
+                        ({"url": "http://localhost/a"}, "public"), ({"url": "http://10.0.0.5/a"}, "public"),
+                        ({"role": ["a"]}, "role must be a string"),
+                        ({"role": "x" * 301}, "at most 300"), ({"company": "a\nb"}, "one line"),
+                        ({"location": "x\x00"}, "one line"), ({"url": "https://x.example/" + "a" * 2100}, "too long")):
+            self.assertIn(msg, self._track(**kw))
+        self.assertEqual(call("query_tracker")["total"], 0)
+        self.assertEqual(call("search_jobs", company="acme")["count"], 0)
+
+    def test_write_tools_are_flagged(self):
+        for name in ("fetch_job_description", "track_job"):
+            a = srv.TOOLS[name][0]["annotations"]
+            self.assertFalse(a["readOnlyHint"])
+            self.assertTrue(a["openWorldHint"])
+        self.assertTrue(srv.TOOLS["track_job"][0]["annotations"]["idempotentHint"])
+        self.assertFalse(srv.TOOLS["track_job"][0]["annotations"]["destructiveHint"])
+
     def test_tools_are_read_only_and_flag_untrusted_text(self):
         for name in ("search_jobs", "get_job", "get_digest", "query_tracker"):
             spec = srv.TOOLS[name][0]
