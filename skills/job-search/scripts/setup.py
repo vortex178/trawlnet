@@ -116,8 +116,8 @@ def link(home: Path, dev: bool = False) -> list:
     if _write_if_changed(js, JS.replace("{scripts}", str(SCRIPTS))):
         changed.append("js")
     js.chmod(0o755)
-    # The folder the MCP server finds (./js passes the same folder as --home and JOB_SEARCH_HOME); never a non-data one.
-    found = homes.nearest(home, walk=not os.environ.get("JOB_SEARCH_HOME"))
+    # Exactly the folder given, and only if it is a data folder.
+    found = homes.nearest(home, walk=False)
     try:
         if found and homes.register(found):
             changed.append(f"registered {found} for the MCP server (restart Claude Code to use it)")

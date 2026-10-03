@@ -11,6 +11,7 @@ from unittest import mock
 
 import common
 import db
+import homes
 import mcp_server as srv
 import mcp_tools  # noqa: F401  (registers the tools)
 import urlguard
@@ -22,6 +23,15 @@ def call(name, **args):
     return json.loads(r["content"][0]["text"]) if not r.get("isError") else r["content"][0]["text"]
 
 
+class UnregisteredFolder(unittest.TestCase):
+    def test_outward_and_config_tools_need_a_registered_folder(self):
+        with mock.patch.object(mcp_tools, "HOME", Path(tempfile.mkdtemp()) / "clone"):
+            for name, args in (("query_tracker", {}), ("fetch_job_description", {"url": "https://example.com/j"}),
+                               ("track_job", {"company": "A", "role": "B", "score": 1, "profile": "p",
+                                              "url": "https://example.com/j"})):
+                self.assertIn("not registered for the MCP server", call(name, **args), name)
+
+
 class ReadTools(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
@@ -30,6 +40,7 @@ class ReadTools(unittest.TestCase):
         patch = mock.patch.object(mcp_tools, "DATA", self.dir)
         patch.start()
         self.addCleanup(patch.stop)
+        homes.register(common.HOME)
         db.mark_seen([
             {"key": "a", "status": "scored", "score": 84, "profile": "backend", "source": "greenhouse",
              "company": "Northwind", "title": "Backend Engineer", "first_seen": "2026-09-02", "url": "https://x/a"},
@@ -125,11 +136,12 @@ class ReadTools(unittest.TestCase):
     def _tracker(self, rows, **tcfg):
         path = self.dir / "t.csv"
         path.write_text("Company,Role,Match Score,Apply URL,Profile,Date Added,Status\n" + rows)
-        cfg = {"tracker": {"backend": "csv", "csv_path": str(path), "columns": [
+        cfg = {"tracker": {"backend": "csv", "csv_path": "t.csv", "columns": [
             "company", "role", "score", "url", "profile", "date_added", "status"], **tcfg}}
-        patch = mock.patch.object(mcp_tools, "load_config", return_value=cfg)
-        patch.start()
-        self.addCleanup(patch.stop)
+        for patch in (mock.patch.object(mcp_tools, "load_config", return_value=cfg),
+                      mock.patch.object(mcp_tools.tracker, "HOME", self.dir)):  # the config path stays in the folder
+            patch.start()
+            self.addCleanup(patch.stop)
 
     ROWS = ("Northwind,Backend,84,https://x/a,backend,2026-09-02,applied\n"
             "Fabrikam,AppSec,70,https://x/b,appsec,2026-09-05,\n"

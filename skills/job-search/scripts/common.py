@@ -60,9 +60,26 @@ def rel(path: Path) -> str:
 
 # ---------- config / country pack / profiles ----------
 
+class ConfigPathError(ValueError):
+    """A config.yaml path that leaves the data folder."""
+
+
+def confined(configured, default: str, name: str, home: Path | None = None) -> Path:
+    """A config path inside the data folder: a copied folder's config.yaml is untrusted, so it must not point the
+    engine at other files (key files are sent to APIs). Symlinks are followed, so one pointing out is refused too."""
+    home = home or HOME
+    path = (home / (configured or default)).resolve()
+    if not path.is_relative_to(home.resolve()):
+        raise ConfigPathError(f"{name} must be inside the data folder ({home}), got {configured}; move the file there "
+                         "(a symlink that resolves outside is refused too)")
+    return path
+
+
 def load_pack(country: str) -> dict:
     """Country pack: the data folder's packs/<cc>.yaml (user override) else the plugin's."""
     cc = country.lower()
+    if not re.fullmatch(r"[a-z0-9_-]+", cc):
+        sys.exit(f"country {country!r} is not a country code")
     for d in (HOME / "packs", PACKS_DIR):
         p = d / f"{cc}.yaml"
         if p.exists():

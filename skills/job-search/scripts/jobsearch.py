@@ -21,7 +21,7 @@ import sys
 from collections import Counter, defaultdict
 
 import db
-from common import (COMPANIES_PATH, DATA, HOME, RUNS_DIR, UA, age_days, has_phrase, html_to_text, job_key,
+from common import (COMPANIES_PATH, DATA, ConfigPathError, HOME, RUNS_DIR, UA, age_days, has_phrase, html_to_text, job_key,
                     load_config, load_preferences, load_profiles, norm, norm_company, parse_date, parse_salary,
                     read_jsonl, rel, run_dir, salary_floor, today, write_jsonl)
 
@@ -736,9 +736,13 @@ def main():
     ap.add_argument("--score", type=int)
     a = ap.parse_args()
     cfg = load_config()
-    {"plan": cmd_plan, "feeds": cmd_feeds, "filter": cmd_filter, "decide": cmd_decide,
-     "shortlist": cmd_shortlist, "publish": cmd_publish, "fetch-url": cmd_fetch_url,
-     "track": cmd_track, "status": cmd_status, "context": cmd_context}[a.cmd](a, cfg)
+    try:
+        run = {"plan": cmd_plan, "feeds": cmd_feeds, "filter": cmd_filter, "decide": cmd_decide,
+               "shortlist": cmd_shortlist, "publish": cmd_publish, "fetch-url": cmd_fetch_url,
+               "track": cmd_track, "status": cmd_status, "context": cmd_context}[a.cmd]
+        run(a, cfg)
+    except ConfigPathError as e:
+        sys.exit(str(e))
 
 
 if __name__ == "__main__":

@@ -154,11 +154,9 @@ class LinkTest(TmpCase):
         home = self.tmp()
         (home / "config.yaml").write_text("")
         (home / "data" / "runs").mkdir(parents=True)
-        js_setup.link(home / "data" / "runs")  # JOB_SEARCH_HOME set: like the server, no walk up
+        js_setup.link(home / "data" / "runs")  # a folder below the data folder is not walked up from
         self.assertFalse(js_setup.homes.is_registered(home))
-        with mock.patch.dict(os.environ):
-            del os.environ["JOB_SEARCH_HOME"]
-            js_setup.link(home / "data" / "runs")  # started below the data folder: the folder itself is listed
+        js_setup.link(home)
         self.assertTrue(js_setup.homes.is_registered(home))
         self.assertFalse(js_setup.homes.is_registered(home / "data" / "runs"))
 
