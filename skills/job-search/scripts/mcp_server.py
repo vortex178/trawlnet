@@ -189,8 +189,10 @@ def main() -> None:
         os.execv(py, [py, os.path.abspath(__file__)])
     for stream in (sys.stdin, sys.stdout):  # MCP stdio is UTF-8 whatever the locale
         stream.reconfigure(encoding="utf-8")
+    import mcp_tools  # noqa: F401  (registers the tools; needs PyYAML, so only after the re-exec)
     serve()
 
 
 if __name__ == "__main__":  # pragma: no cover
-    main()
+    import mcp_server  # run the importable module, so mcp_tools registers into the registries serve() reads
+    mcp_server.main()
