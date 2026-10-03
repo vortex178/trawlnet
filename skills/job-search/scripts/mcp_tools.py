@@ -10,7 +10,7 @@ import db
 import homes
 import tracker
 import urlguard
-from common import DATA, HOME, load_config, load_profiles
+from common import DATA, HOME, load_config, load_profiles, served
 from jobsearch import fetch_job, status_data, track_job
 from mcp_server import tool
 
@@ -25,7 +25,7 @@ def _registered() -> None:
     folder's config.yaml is untrusted (the same rule as the server's venv re-exec)."""
     if not homes.is_registered(HOME):
         raise ValueError(f"the data folder {HOME} is not registered for the MCP server: run /trawlnet:setup (or "
-                         "`./js link`) there and restart Claude Code")
+                         "`./js setup link`) there and restart Claude Code")
 
 
 def _int(args: dict, name: str, default: int | None = None) -> int | None:
@@ -33,6 +33,8 @@ def _int(args: dict, name: str, default: int | None = None) -> int | None:
     if v is None:
         return default
     if isinstance(v, int) and not isinstance(v, bool):
+        if abs(v) >= 2**63:  # SQLite integers are 64-bit
+            raise ValueError(f"{name} is out of range")
         return v
     raise ValueError(f"{name} must be an integer")
 
@@ -135,7 +137,7 @@ def get_digest(args: dict) -> dict:
     path = digests / f"{date}.md" if date else max(digests.glob("*.md"), default=None)
     if path is None or not path.exists():
         raise FileNotFoundError(f"no digest for {date or 'any run'}")
-    return {"date": path.stem, "markdown": path.read_text(encoding="utf-8")}
+    return {"date": path.stem, "markdown": served(path, "the digest").read_text(encoding="utf-8")}
 
 
 @tool("query_tracker", "Read the job tracker (Google Sheet or CSV), newest rows first. Read-only: it never edits the "
@@ -148,7 +150,8 @@ def get_digest(args: dict) -> dict:
           "min_score": {"type": "integer"},
           "since": {"type": "string", "description": "added on/after YYYY-MM-DD (needs date_added; rows whose date "
                                                      "is not ISO never match)"},
-          "limit": {"type": "integer", "description": f"default 50, max {MAX_TRACKER_ROWS}"}})
+          "limit": {"type": "integer", "description": f"default 50, max {MAX_TRACKER_ROWS}"}},
+      openWorldHint=True)  # a Google Sheet
 def query_tracker(args: dict) -> dict:
     status, company, profile, since = (_str(args, k) for k in ("status", "company", "profile", "since"))
     min_score, limit = _int(args, "min_score"), _limit(args, 50, MAX_TRACKER_ROWS)
@@ -206,7 +209,7 @@ def _text(args: dict, name: str) -> str:
       "returned, not saved. Use only URLs the user gave "
       "you or that a job listing links to." + UNTRUSTED,
       {"url": {"type": "string", "description": "public http(s) job page"}}, required=["url"],
-      read_only=False, openWorldHint=True)
+      read_only=False, destructiveHint=False, idempotentHint=True, openWorldHint=True)
 def fetch_job_description(args: dict) -> dict:
     _registered()
     url = _http_url(args)

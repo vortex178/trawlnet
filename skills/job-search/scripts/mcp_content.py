@@ -9,8 +9,8 @@ import urllib.parse
 
 import yaml
 
-from common import DATA, PROFILES_DIR, SKILL_DIR, load_profiles
-from mcp_server import RESOURCE_SOURCES, BadArgs, prompt
+from common import DATA, PROFILES_DIR, SKILL_DIR, ConfigPathError, load_profiles, served
+from mcp_server import RESOURCE_SOURCES, BadArgs, RpcError, prompt
 
 MAX_DIGESTS = 20  # the list is sent to the client in full; digests are named by date, so name order is newest first
 
@@ -19,15 +19,31 @@ def _add(out: dict, uri: str, name: str, description: str, read, mime: str = "te
     out[uri] = ({"uri": uri, "name": name, "description": description, "mimeType": mime}, read)
 
 
+def _inside(path) -> bool:
+    try:
+        served(path)
+        return True
+    except ConfigPathError:
+        return False
+
+
 def _text(path):
-    return lambda: path.read_text(encoding="utf-8")
+    """A data-folder file, read only while it resolves inside the folder (a clone may hold symlinks out of it)."""
+    def read():
+        try:
+            return served(path, path.name).read_text(encoding="utf-8")
+        except ConfigPathError as e:
+            raise RpcError(-32002, str(e))
+    return read
 
 
 def files() -> dict:
     out: dict = {}
     _add(out, "trawlnet://tailoring-rules", "Resume tailoring rules", "Hard rules for sourced, honest resume edits.",
-         _text(SKILL_DIR / "references" / "tailoring-rules.md"))
+         lambda: (SKILL_DIR / "references" / "tailoring-rules.md").read_text(encoding="utf-8"))  # the plugin's own
     try:
+        if not all(_inside(f) for f in PROFILES_DIR.glob("*.yaml")):
+            raise ConfigPathError("a profile file resolves outside the data folder")
         profiles = load_profiles()
     except Exception as e:  # a broken profile file must not hide the other resources
         print(f"mcp: profiles not listed: {type(e).__name__}: {e}", file=sys.stderr)
@@ -36,14 +52,15 @@ def files() -> dict:
         _add(out, "trawlnet://profiles/" + urllib.parse.quote(str(pid), safe=""), f"Profile: {pid}",
              "Active role profile (targets, skills, gates).",
              lambda prof=prof: yaml.safe_dump(prof, sort_keys=False, allow_unicode=True), "application/yaml")
-    if (PROFILES_DIR / "master.yaml").exists():
+    if (PROFILES_DIR / "master.yaml").exists() and _inside(PROFILES_DIR / "master.yaml"):
         _add(out, "trawlnet://master", "Master facts", "Master resume facts, with ids for tailoring citations.",
              _text(PROFILES_DIR / "master.yaml"), "application/yaml")
-    if (DATA / "scoring-context.md").exists():
+    if (DATA / "scoring-context.md").exists() and _inside(DATA / "scoring-context.md"):
         _add(out, "trawlnet://scoring-context", "Scoring context", "Country, salary floors and work rules for scoring.",
              _text(DATA / "scoring-context.md"))
     for path in sorted((DATA / "digests").glob("*.md"), reverse=True)[:MAX_DIGESTS]:
-        _add(out, f"trawlnet://digests/{path.stem}", f"Digest {path.stem}", "Scored jobs of one run.", _text(path))
+        if _inside(path):
+            _add(out, f"trawlnet://digests/{path.stem}", f"Digest {path.stem}", "Scored jobs of one run.", _text(path))
     return out
 
 

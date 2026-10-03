@@ -26,11 +26,64 @@ class Resources(unittest.TestCase):
         self.data = self.home / "data"
         self.addCleanup(shutil.rmtree, self.home, True)
         for patch in (mock.patch.dict(os.environ, {"JOB_SEARCH_HOME": str(self.home)}),
+                      mock.patch.object(common, "HOME", self.home),
                       mock.patch.object(mcp_content, "DATA", self.data),
                       mock.patch.object(mcp_content, "PROFILES_DIR", self.data / "profiles"),
                       mock.patch.object(common, "PROFILES_DIR", self.data / "profiles")):
             patch.start()
             self.addCleanup(patch.stop)
+
+    def test_symlinks_out_of_the_folder_are_not_served(self):
+        outside = Path(tempfile.mkdtemp()) / "secret.txt"
+        outside.write_text("secret")
+        self.addCleanup(shutil.rmtree, outside.parent, True)
+        self.make("digests/2099-01-01.md", "ok")
+        (self.data / "digests" / "2099-01-02.md").symlink_to(outside)
+        (self.data / "scoring-context.md").symlink_to(outside)
+        (self.data / "profiles" / "master.yaml").unlink(missing_ok=True)
+        (self.data / "profiles" / "master.yaml").symlink_to(outside)
+        uris = self.uris()
+        self.assertIn("trawlnet://digests/2099-01-01", uris)
+        for gone in ("trawlnet://digests/2099-01-02", "trawlnet://scoring-context", "trawlnet://master"):
+            self.assertNotIn(gone, uris)
+        self.assertNotIn("secret", json.dumps(rpc("resources/list")))
+        (self.data / "digests" / "2099-01-01.md").unlink()  # listed earlier, swapped for a link before it is read
+        (self.data / "digests" / "2099-01-01.md").symlink_to(outside)
+        with mock.patch.object(mcp_content, "_inside", return_value=True):
+            err = rpc("resources/read", {"uri": "trawlnet://digests/2099-01-01"})["error"]
+        self.assertIn("symlink", err["message"])
+
+    def test_links_to_the_folders_own_secrets_are_not_served(self):
+        (self.home / ".secrets").mkdir(exist_ok=True)
+        (self.home / ".secrets" / "key").write_text("SECRETKEY")
+        self.make("digests/2099-01-01.md", "ok")
+        (self.data / "digests" / "2099-01-02.md").symlink_to(self.home / ".secrets" / "key")  # inside HOME, outside digests/
+        (self.data / "scoring-context.md").unlink(missing_ok=True)
+        (self.data / "scoring-context.md").symlink_to(self.home / "config.yaml")
+        uris = self.uris()
+        self.assertIn("trawlnet://digests/2099-01-01", uris)
+        self.assertNotIn("trawlnet://digests/2099-01-02", uris)
+        self.assertNotIn("trawlnet://scoring-context", uris)
+
+    def test_directory_links_are_not_followed(self):
+        (self.home / ".secrets").mkdir(exist_ok=True)
+        (self.home / ".secrets" / "2026-01-01.md").write_text("SECRETKEY")
+        (self.home / ".secrets" / "master.yaml").write_text("secret: 1\n")
+        for d in ("digests", "profiles"):
+            shutil.rmtree(self.data / d, ignore_errors=True)
+            (self.data / d).symlink_to(self.home / ".secrets")
+        uris = self.uris()
+        self.assertEqual([u for u in uris if "digests" in u or "master" in u or "/profiles/" in u], [])
+        self.assertIn("trawlnet://tailoring-rules", uris)
+
+    def test_a_profile_link_out_hides_the_profiles_but_not_the_rest(self):
+        outside = Path(tempfile.mkdtemp()) / "p.yaml"
+        outside.write_text("id: x\n")
+        self.addCleanup(shutil.rmtree, outside.parent, True)
+        (self.data / "profiles" / "evil.yaml").symlink_to(outside)
+        uris = self.uris()
+        self.assertFalse([u for u in uris if "/profiles/" in u])
+        self.assertIn("trawlnet://tailoring-rules", uris)
 
     def make(self, rel, text):
         path = self.data / rel

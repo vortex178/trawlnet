@@ -42,11 +42,11 @@ class RpcError(Exception):
 
 def tool(name: str, description: str, properties: dict | None = None, required=(), read_only: bool = True, **hints):
     """Register fn(args) as a tool; its return value is sent as compact JSON text. `hints` are further MCP tool
-    annotations (openWorldHint, destructiveHint, idempotentHint)."""
+    annotations (destructiveHint, idempotentHint, and openWorldHint, False unless a tool reaches outside)."""
     def deco(fn):
         spec = {"name": name, "description": description,
                 "inputSchema": {"type": "object", "properties": properties or {}, "required": list(required)},
-                "annotations": {"readOnlyHint": read_only, **hints}}
+                "annotations": {"readOnlyHint": read_only, "openWorldHint": False, **hints}}
         TOOLS[name] = (spec, fn)
         return fn
     return deco
@@ -80,7 +80,7 @@ def _initialize(params: dict) -> dict:
 
 def _call_tool(params: dict) -> dict:
     name = params.get("name")
-    if name not in TOOLS:
+    if not isinstance(name, str) or name not in TOOLS:
         raise RpcError(INVALID_PARAMS, f"Unknown tool: {name}")
     args = params.get("arguments") or {}
     if not isinstance(args, dict):
@@ -89,7 +89,8 @@ def _call_tool(params: dict) -> dict:
         return _tool_error(NO_HOME.format(Path.cwd()))
     try:
         result = TOOLS[name][1](args)
-    except (ValueError, KeyError, FileNotFoundError, ImportError) as e:  # bad arguments, missing data or env
+    except (ValueError, KeyError, FileNotFoundError, ImportError, OverflowError, TypeError) as e:
+        # bad arguments, missing data or env
         return _tool_error(f"{type(e).__name__}: {e}")
     except _env_errors() as e:  # unreadable file, locked or damaged database, broken YAML: the model can relay it
         return _tool_error(f"{type(e).__name__}: {e}")
@@ -131,6 +132,8 @@ def _resources() -> dict:
 def _read_resource(params: dict) -> dict:
     uri = params.get("uri")
     _need_home()
+    if not isinstance(uri, str):
+        raise RpcError(INVALID_PARAMS, "uri must be a string")
     if uri not in (found := _resources()):
         raise RpcError(-32002, f"Resource not found: {uri}")
     spec, fn = found[uri]
@@ -139,7 +142,7 @@ def _read_resource(params: dict) -> dict:
 
 def _get_prompt(params: dict) -> dict:
     name = params.get("name")
-    if name not in PROMPTS:
+    if not isinstance(name, str) or name not in PROMPTS:
         raise RpcError(INVALID_PARAMS, f"Unknown prompt: {name}")
     args = params.get("arguments") or {}
     if not isinstance(args, dict):
@@ -172,13 +175,17 @@ def handle(line: str) -> dict | None:
         return None
     try:
         msg = json.loads(line)
-    except ValueError:
+    except (ValueError, RecursionError):  # RecursionError: ~1000 nested arrays on Python < 3.14
         return _error(None, PARSE_ERROR, "Parse error")
     if not isinstance(msg, dict) or not isinstance(msg.get("method"), str):
-        return _error(msg.get("id") if isinstance(msg, dict) else None, INVALID_REQUEST, "Invalid request")
+        rid = msg.get("id") if isinstance(msg, dict) else None
+        return _error(rid if isinstance(rid, (str, int)) and not isinstance(rid, bool) else None, INVALID_REQUEST,
+                      "Invalid request")
     if "id" not in msg:  # notification (initialized, cancelled, ...): nothing to answer
         return None
     rid, method = msg["id"], msg["method"]
+    if isinstance(rid, bool) or not isinstance(rid, (str, int)):  # also keeps a deeply nested id out of the reply
+        return _error(None, INVALID_REQUEST, "Invalid request: id must be a string or an integer")
     if method not in METHODS:
         return _error(rid, METHOD_NOT_FOUND, f"Method not found: {method}")
     params = msg.get("params")

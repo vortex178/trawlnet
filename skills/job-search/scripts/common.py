@@ -64,6 +64,21 @@ class ConfigPathError(ValueError):
     """A config.yaml path that leaves the data folder."""
 
 
+def served(path: Path, name: str = "file") -> Path:
+    """`path` itself, refused unless it lies in the data folder with no symlink anywhere below it: the MCP server
+    serves files of a folder that may be a clone, where a link (to the file or to a directory above it) could point
+    at any file of the user's, including the folder's own .secrets/ and config.yaml."""
+    lexical = Path(os.path.abspath(path))
+    if not lexical.is_relative_to(HOME):
+        raise ConfigPathError(f"{name} is outside the data folder; refusing to read it")
+    for part in (lexical, *lexical.parents):
+        if part == HOME:
+            break
+        if part.is_symlink():
+            raise ConfigPathError(f"{name} is reached through a symlink; refusing to read it")
+    return lexical
+
+
 def confined(configured, default: str, name: str, home: Path | None = None) -> Path:
     """A config path inside the data folder: a copied folder's config.yaml is untrusted, so it must not point the
     engine at other files (key files are sent to APIs). Symlinks are followed, so one pointing out is refused too."""
