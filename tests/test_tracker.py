@@ -9,8 +9,10 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import types
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import tracker
@@ -44,6 +46,7 @@ class ConfigHelpersTest(unittest.TestCase):
     def test_row_handles_none_dicts_and_legacy_lists(self):
         self.assertEqual(tracker._row({"company": "A", "score": None, "role": 0}, ["company", "score", "role"]), ["A", "", 0])
         self.assertEqual(tracker._row(["A", "B", 70], ["company", "role", "score", "url"]), ["A", "B", 70, ""])
+
 
 
 class CsvBackendTest(unittest.TestCase):
@@ -234,7 +237,44 @@ class SheetsBackendTest(unittest.TestCase):
             tracker.queue_rows([{"company": "A"}])
             self.assertEqual(tracker.flush(b.cfg)[:2], (0, 1))  # still queued, no traceback
         with mock.patch.dict(sys.modules, {"google.auth.exceptions": None}):
-            self.assertEqual(tracker._auth_errors(), ())  # no google-auth: nothing extra to catch
+            self.assertEqual(tracker._optional("google.auth.exceptions", "GoogleAuthError"), ())  # nothing to catch
+
+    def test_request_failure_is_unavailable(self):
+        class ConnectionError(Exception):  # stands in for requests.RequestException
+            pass
+
+        class Offline(FakeSession):
+            def get(self, url, **kw):
+                raise ConnectionError("Max retries exceeded with url: /v4/spreadsheets/SID " + "x" * 400)
+
+        b = self.make()
+        self.use(b, Offline())
+        with mock.patch.dict(sys.modules, {"requests": types.SimpleNamespace(RequestException=ConnectionError)}):
+            for call in (b.read_rows, b.check, b.init, lambda: b.append([{"company": "A"}])):
+                with self.assertRaisesRegex(tracker.Unavailable, r"^Google Sheets request failed: Max retries") as cm:
+                    call()
+                self.assertLess(len(str(cm.exception)), 340)
+        with mock.patch.dict(sys.modules, {"requests": None}):
+            self.assertEqual(tracker._optional("requests", "RequestException"), ())
+
+    def test_session_without_google_auth_or_with_a_bad_key(self):
+        key = HOME / ".secrets" / "sa-test.json"
+        key.parent.mkdir(exist_ok=True)
+        key.write_text("not json")
+        self.addCleanup(lambda: key.unlink(missing_ok=True))
+        gone = {m: None for m in ("google.auth.transport.requests", "google.oauth2")}
+        with mock.patch.dict(sys.modules, gone):
+            with self.assertRaisesRegex(tracker.Unavailable, "google-auth or requests is not installed .*`./js setup env`"):
+                self.make()._session()
+        sa = types.SimpleNamespace(Credentials=types.SimpleNamespace(
+            from_service_account_file=mock.Mock(side_effect=ValueError("No key could be detected."))))
+        oauth2 = types.ModuleType("google.oauth2")
+        oauth2.service_account = sa
+        mods = {"google.auth.transport.requests": types.SimpleNamespace(AuthorizedSession=mock.Mock()),
+                "google.oauth2": oauth2, "google.oauth2.service_account": sa}
+        with mock.patch.dict(sys.modules, mods):
+            with self.assertRaisesRegex(tracker.Unavailable, r"sa-test.json is unusable: No key could be detected"):
+                self.make()._session()
 
     def test_check_reports_header(self):
         b = self.make(sheet_tab_gid=5)
@@ -271,6 +311,68 @@ class SheetsBackendTest(unittest.TestCase):
         self.assertIn("MISSING", self.make(sheet_url="https://sheet.example/x").describe())
         self.assertIn("https://sheet.example/x", self.make(sheet_url="https://sheet.example/x").describe())
         self.assertIn("(not set)", tracker.SheetsBackend({"tracker": {"backend": "gsheets"}}).describe())
+
+
+@unittest.skipIf(sys.platform == "win32", "flock is POSIX")
+class QueueLockTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        patch = mock.patch.object(tracker, "PENDING_ROWS_PATH", self.dir / "pending.jsonl")
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def other_process_can_lock(self) -> bool:
+        code = ("import fcntl, sys\nf = open(sys.argv[1], 'a')\n"
+                "try:\n    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)\nexcept BlockingIOError:\n    sys.exit(1)")
+        return subprocess.run([sys.executable, "-c", code, str(self.dir / "pending.jsonl.lock")]).returncode == 0
+
+    def test_flush_holds_the_queue_against_other_processes(self):
+        seen = []
+        cfg = {"tracker": {"backend": "csv", "csv_path": str(self.dir / "t.csv")}}
+        probe = lambda b, rows: seen.append(self.other_process_can_lock())  # noqa: E731
+        with mock.patch.object(tracker.CsvBackend, "append", probe):
+            tracker.queue_rows([{"company": "A"}])
+            tracker.flush(cfg)
+        self.assertEqual(seen, [False])
+        self.assertTrue(self.other_process_can_lock())
+
+    def test_reentrant_and_released_on_error(self):
+        with mock.patch("fcntl.flock") as flock:
+            with self.assertRaises(KeyError):
+                with tracker.queue_lock():
+                    tracker.queue_rows([{"company": "A"}])  # nested: no second flock, no deadlock
+                    raise KeyError("boom")
+        self.assertEqual(flock.call_count, 1)
+        self.assertEqual(tracker._lock_depth, 0)
+        self.assertEqual(len(tracker.read_jsonl(tracker.PENDING_ROWS_PATH)), 1)
+
+    def test_without_fcntl_or_file_locks_still_queues(self):
+        with mock.patch.dict(sys.modules, {"fcntl": None}):
+            tracker.queue_rows([{"company": "A"}])
+        with mock.patch("fcntl.flock", side_effect=OSError(45, "Operation not supported")):  # e.g. an NFS mount
+            tracker.queue_rows([{"company": "B"}])
+        lock = self.dir / "pending.jsonl.lock"
+        lock.unlink()
+        lock.mkdir()  # the lock file cannot be opened
+        tracker.queue_rows([{"company": "C"}])
+        self.assertEqual(tracker._lock_depth, 0)
+        self.assertEqual(len(tracker.read_jsonl(tracker.PENDING_ROWS_PATH)), 3)
+
+    def test_unwritable_csv_keeps_rows_queued(self):
+        (self.dir / "t.csv").mkdir()  # opening it for writing fails, as a locked or read-only file would
+        cfg = {"tracker": {"backend": "csv", "csv_path": str(self.dir / "t.csv")}}
+        tracker.queue_rows([{"company": "A"}])
+        pushed, pending, msg = tracker.flush(cfg)
+        self.assertEqual((pushed, pending), (0, 1))
+        self.assertIn("cannot write", msg)
+        b = tracker.CsvBackend(cfg)
+        with self.assertRaisesRegex(tracker.Unavailable, "is unreadable"):
+            b.check()
+        (self.dir / "t.csv").rmdir()
+        with mock.patch.object(Path, "open", side_effect=PermissionError(13, "Permission denied")):
+            with self.assertRaisesRegex(tracker.Unavailable, "cannot write .*Permission denied"):
+                b.init()
 
 
 class CliTest(unittest.TestCase):
