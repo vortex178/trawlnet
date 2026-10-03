@@ -24,8 +24,8 @@ def _registered() -> None:
     """Tools that reach outward or read config-named files only run in a folder `setup.py link` registered: a cloned
     folder's config.yaml is untrusted (the same rule as the server's venv re-exec)."""
     if not homes.is_registered(HOME):
-        raise ValueError(f"the data folder {HOME} is not registered for the MCP server: run /trawlnet:setup (or "
-                         "`./js setup link`) there and restart Claude Code")
+        raise ValueError(f"the data folder {HOME} is not registered for the MCP server: run `./js setup link` "
+                         "(or `setup.py link --home <folder>`) and restart Claude Code or Claude Desktop")
 
 
 def _int(args: dict, name: str, default: int | None = None) -> int | None:

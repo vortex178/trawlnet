@@ -82,7 +82,7 @@ See [`examples/data-folder`](examples/data-folder) for a complete (fictional) da
 
 The plugin also starts a local MCP server (`trawlnet`, stdio, no extra install) for the data folder it is started in.
 It runs on the folder's Python env once setup has registered the folder (`./js setup link`, part of every run;
-restart Claude Code after the first registration). `query_tracker`, `fetch_job_description` and `track_job` also
+restart Claude Code or Claude Desktop after the first registration). `query_tracker`, `fetch_job_description` and `track_job` also
 refuse to run in a folder that is not registered, and the key and tracker files named in `config.yaml` (`csv_path`, `service_account_key`, `api_key_file`, `adzuna_key_file`)
 must lie inside the data folder.
 Read tools: `status`, `search_jobs`, `get_job`, `list_runs`, `get_digest`, `query_tracker` (the tracker, read-only).
