@@ -11,7 +11,8 @@ Collect answers in one short exchange (offer defaults), then run one command. Ne
    or LPA for India; may be skipped).
 4. **Tracker** — `csv` (default, zero setup) or `gsheets` (user creates a service account: `tracker-setup.md`).
 5. **Indeed connector** (optional) — if this session has a tool named `mcp__<id>__search_jobs` from the claude.ai
-   Indeed connector, pass the prefix `mcp__<id>`; otherwise skip (Indeed off).
+   Indeed connector, pass the prefix `mcp__<id>`; otherwise skip (Indeed off). Ignore `mcp__plugin_trawlnet_*`: that is
+   this plugin's own MCP server, which also has a `search_jobs` tool.
 
 Run (requires Python ≥ 3.9 or `uv`; creates `.venv` and installs requirements):
 ```

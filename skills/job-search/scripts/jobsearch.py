@@ -622,7 +622,8 @@ def update_claude_md(run: str, row: str, keep: int = 7) -> None:
 
 def fetch_job(page_url: str, cfg: dict, date: str | None = None):
     """One job's (title, company, location, description, canonical url) via its ATS API or a page fetch, else None.
-    Writes nothing except the Firecrawl ledger when a JS-rendered page needs a credit."""
+    Writes no JD file: a page fetch creates the run dir, and a JS-rendered page that needs a credit also writes the
+    Firecrawl ledger and cache."""
     import urllib.request
     url = page_url.split("?")[0].rstrip("/")
     get = lambda u: json.loads(urllib.request.urlopen(  # noqa: E731

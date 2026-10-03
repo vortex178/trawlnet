@@ -82,8 +82,9 @@ The plugin also starts a local MCP server (`trawlnet`, stdio, no extra install) 
 It runs on the folder's Python env once setup has registered the folder (`./js setup link`, part of every run;
 restart Claude Code after the first registration).
 Read tools: `status`, `search_jobs`, `get_job`, `list_runs`, `get_digest`, `query_tracker` (the tracker, read-only).
-Action tools: `fetch_job_description` (fetches one public job URL) and `track_job` (adds one tracker row); Claude Code
-asks before each call. Resources expose your profiles, `master` facts, scoring context and digests; prompts
+Action tools: `fetch_job_description` (fetches one public job URL; returns the text without saving it, and a Firecrawl
+render, if enabled, uses one of today's run credits) and `track_job` (adds one tracker row); Claude Code asks before each
+call. Resources expose your profiles, `master` facts, scoring context and digests; prompts
 `tailor_for_job` and `weekly_review`. Job text is returned as untrusted data. The full `run` stays a skill command.
 
 ## Costs
