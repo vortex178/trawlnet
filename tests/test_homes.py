@@ -35,6 +35,12 @@ class HomesTest(unittest.TestCase):
         self.assertTrue(homes.is_registered(self.cfg / "alias"))  # same folder by another path
         self.assertEqual(homes.homes_file().read_text().count("\n"), 1)
 
+    def test_crlf_list_still_matches(self):
+        h = self.home()
+        homes.homes_file().parent.mkdir(parents=True)
+        homes.homes_file().write_bytes(f"{h}\r\n".encode())  # a list saved by a Windows editor
+        self.assertTrue(homes.is_registered(h))
+
     def test_case_variant_matches_same_folder_only(self):
         h = self.home()
         homes.homes_file().parent.mkdir(parents=True)

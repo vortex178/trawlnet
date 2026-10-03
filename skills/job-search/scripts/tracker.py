@@ -19,7 +19,8 @@ import json
 import sys
 import urllib.parse
 
-from common import HOME, PENDING_ROWS_PATH, append_jsonl, load_config, read_jsonl, rel, save_config_value, write_jsonl
+from common import (HOME, PENDING_ROWS_PATH, append_jsonl, confined, load_config, read_jsonl, rel, save_config_value,
+                    write_jsonl)
 
 FIELDS = {"company": "Company", "role": "Role", "score": "Match Score", "url": "Apply URL", "profile": "Profile",
           "location": "Location", "posted": "Posted", "source": "Source", "date_added": "Date Added",
@@ -134,7 +135,7 @@ def read_rows(cfg: dict) -> tuple:
 class CsvBackend:
     def __init__(self, cfg: dict):
         self.cfg = cfg
-        self.path = HOME / (tracker_cfg(cfg).get("csv_path") or "tracker.csv")
+        self.path = confined(tracker_cfg(cfg).get("csv_path"), "tracker.csv", "tracker.csv_path", HOME)
 
     def init(self):
         if not self.path.exists() or not self.path.stat().st_size:
@@ -185,7 +186,8 @@ class SheetsBackend:
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.g = tracker_cfg(cfg).get("gsheets") or {}
-        self.key = HOME / (self.g.get("service_account_key") or ".secrets/service-account.json")
+        self.key = confined(self.g.get("service_account_key"), ".secrets/service-account.json",
+                            "tracker.gsheets.service_account_key", HOME)
         self.last_col = chr(ord("A") + len(columns(cfg)) - 1)
 
     def _session(self):
@@ -342,14 +344,18 @@ def flush(cfg=None) -> tuple:
             return 0, 0, "nothing queued"
         try:
             msg = backend(cfg).append(pending)
-        except Unavailable as e:
+        except (Unavailable, ValueError) as e:  # ValueError: a config path outside the data folder
             return 0, len(pending), str(e)
         write_jsonl(PENDING_ROWS_PATH, [])
         return len(pending), 0, msg
 
 
 def describe(cfg: dict) -> str:
-    return f"{backend(cfg).describe()} | queued rows: {len(read_jsonl(PENDING_ROWS_PATH))}"
+    try:
+        what = backend(cfg).describe()
+    except ValueError as e:  # a config path outside the data folder
+        what = f"tracker unavailable: {e}"
+    return f"{what} | queued rows: {len(read_jsonl(PENDING_ROWS_PATH))}"
 
 
 if __name__ == "__main__":
@@ -365,5 +371,5 @@ if __name__ == "__main__":
             print(json.dumps(dict(zip(("pushed", "pending", "msg"), flush(cfg)))))
         else:
             sys.exit(__doc__)
-    except Unavailable as e:
+    except (Unavailable, ValueError) as e:
         sys.exit(f"tracker unavailable: {e}")

@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.request
 
-from common import HOME, rel, run_dir
+from common import confined, rel, run_dir
 
 API = "https://api.firecrawl.dev"
 
@@ -25,7 +25,6 @@ class Budget:
         self.enabled = bool(fc.get("enabled"))
         self.base = int(fc.get("base_credits_per_run", 30))
         self.reserve = int(fc.get("reserve_credits", 50))
-        self.key_path = HOME / fc.get("api_key_file", ".secrets/firecrawl.key")
         self.ledger = run_dir(date) / "firecrawl.json"
         self.cache = run_dir(date) / "fc"
         self.min_interval = float(fc.get("min_seconds_between_requests", 6))  # free plan: ~10 req/min
@@ -36,7 +35,9 @@ class Budget:
         self.start_remaining = state.get("start_remaining")
         self.allowance = state.get("allowance")
         self.note = state.get("note", "")
-        self.key = self.key_path.read_text().strip() if self.key_path.exists() else None
+        self.key_path = (confined(fc.get("api_key_file"), ".secrets/firecrawl.key", "firecrawl.api_key_file")
+                         if self.enabled else None)  # a disabled Firecrawl never reads (or checks) the file
+        self.key = self.key_path.read_text().strip() if self.key_path and self.key_path.exists() else None
         if self.enabled and not self.key:
             self.enabled, self.note = False, f"no API key at {rel(self.key_path)}"
         if self.enabled and self.allowance is None:

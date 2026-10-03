@@ -348,9 +348,10 @@ class QueueLockTest(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.dir, True)
-        patch = mock.patch.object(tracker, "PENDING_ROWS_PATH", self.dir / "pending.jsonl")
-        patch.start()
-        self.addCleanup(patch.stop)
+        for patch in (mock.patch.object(tracker, "PENDING_ROWS_PATH", self.dir / "pending.jsonl"),
+                      mock.patch.object(tracker, "HOME", self.dir)):
+            patch.start()
+            self.addCleanup(patch.stop)
 
     def other_process_can_lock(self) -> bool:
         code = ("import fcntl, sys\nf = open(sys.argv[1], 'a')\n"
@@ -359,7 +360,7 @@ class QueueLockTest(unittest.TestCase):
 
     def test_flush_holds_the_queue_against_other_processes(self):
         seen = []
-        cfg = {"tracker": {"backend": "csv", "csv_path": str(self.dir / "t.csv")}}
+        cfg = {"tracker": {"backend": "csv", "csv_path": "t.csv"}}
         probe = lambda b, rows: seen.append(self.other_process_can_lock())  # noqa: E731
         with mock.patch.object(tracker.CsvBackend, "append", probe):
             tracker.queue_rows([{"company": "A"}])
@@ -391,7 +392,7 @@ class QueueLockTest(unittest.TestCase):
 
     def test_unwritable_csv_keeps_rows_queued(self):
         (self.dir / "t.csv").mkdir()  # opening it for writing fails, as a locked or read-only file would
-        cfg = {"tracker": {"backend": "csv", "csv_path": str(self.dir / "t.csv")}}
+        cfg = {"tracker": {"backend": "csv", "csv_path": "t.csv"}}
         tracker.queue_rows([{"company": "A"}])
         pushed, pending, msg = tracker.flush(cfg)
         self.assertEqual((pushed, pending), (0, 1))
@@ -403,6 +404,46 @@ class QueueLockTest(unittest.TestCase):
         with mock.patch.object(Path, "open", side_effect=PermissionError(13, "Permission denied")):
             with self.assertRaisesRegex(tracker.Unavailable, "cannot write .*Permission denied"):
                 b.init()
+
+
+class ConfinedPathsTest(unittest.TestCase):
+    def test_config_paths_stay_inside_the_data_folder(self):
+        for rel in ("../elsewhere.csv", "/etc/hosts", "sub/../../x.csv"):
+            with self.assertRaisesRegex(ValueError, "tracker.csv_path must be inside the data folder"):
+                tracker.CsvBackend({"tracker": {"backend": "csv", "csv_path": rel}})
+        with self.assertRaisesRegex(ValueError, "service_account_key must be inside"):
+            tracker.SheetsBackend({"tracker": {"backend": "gsheets", "gsheets": {"service_account_key": "../k.json"}}})
+        self.assertEqual(tracker.CsvBackend({"tracker": {"csv_path": "a/b.csv"}}).path, HOME.resolve() / "a" / "b.csv")
+
+
+class OutsidePathDegradesTest(unittest.TestCase):
+    """A config path outside the data folder is a message, never a traceback or a lost queue."""
+    cfg = {"tracker": {"backend": "csv", "csv_path": "/etc/out.csv"}}
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        patch = mock.patch.object(tracker, "PENDING_ROWS_PATH", self.dir / "pending.jsonl")
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_flush_keeps_rows_queued_and_describe_reports(self):
+        tracker.queue_rows([{"company": "A"}])
+        pushed, pending, msg = tracker.flush(self.cfg)
+        self.assertEqual((pushed, pending), (0, 1))
+        self.assertIn("must be inside the data folder", msg)
+        self.assertIn("tracker unavailable: tracker.csv_path must be inside", tracker.describe(self.cfg))
+
+    def test_cli_exits_with_the_message(self):
+        home = _home.make_home()
+        self.addCleanup(shutil.rmtree, home, True)
+        (home / "config.yaml").write_text((home / "config.yaml").read_text().replace(
+            "csv_path: tracker.csv", "csv_path: /etc/out.csv"))
+        p = subprocess.run([sys.executable, str(_home.SCRIPTS / "tracker.py"), "check"], capture_output=True,
+                           text=True, env={**os.environ, "JOB_SEARCH_HOME": str(home)}, cwd=str(home))
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("must be inside the data folder", p.stderr)
+        self.assertNotIn("Traceback", p.stderr)
 
 
 class CliTest(unittest.TestCase):

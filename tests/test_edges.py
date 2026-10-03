@@ -8,6 +8,7 @@ import io
 import json
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 from argparse import Namespace
@@ -52,6 +53,32 @@ class CommonEdgesTest(TmpCase):
             common.load_pack("ZZ")
         with mock.patch.object(common, "HOME", self.tmp()), self.assertRaisesRegex(SystemExit, "No config.yaml"):
             common.load_config()
+        with self.assertRaisesRegex(SystemExit, "not a country code"):
+            common.load_pack("../../x")
+
+    def test_key_file_paths_must_stay_inside_the_data_folder(self):
+        import firecrawl
+        from sources import adzuna
+        link = common.HOME / ".secrets" / "out-link"
+        link.parent.mkdir(exist_ok=True)
+        link.unlink(missing_ok=True)
+        link.symlink_to("/etc/hosts")
+        self.addCleanup(link.unlink)
+        for bad in ("/etc/hosts", "../key", ".secrets/out-link"):
+            with self.assertRaisesRegex(ValueError, "firecrawl.api_key_file must be inside the data folder"):
+                firecrawl.Budget({"firecrawl": {"enabled": True, "api_key_file": bad}}, "2004-01-02")
+            with self.assertRaisesRegex(ValueError, "adzuna_key_file must be inside the data folder"):
+                adzuna.fetch_adzuna({"adzuna_key_file": bad})
+        off = firecrawl.Budget({"firecrawl": {"api_key_file": "/etc/hosts"}}, "2004-01-02")  # disabled: never read
+        self.assertEqual((off.enabled, off.key), (False, None))
+        self.assertEqual(common.confined(None, ".secrets/k", "n"), common.HOME.resolve() / ".secrets" / "k")
+
+    def test_main_reports_a_config_path_error_as_a_message(self):
+        import jobsearch
+        with mock.patch.object(sys, "argv", ["jobsearch.py", "feeds"]), \
+                mock.patch.object(jobsearch, "cmd_feeds", side_effect=common.ConfigPathError("x must be inside")):
+            with self.assertRaisesRegex(SystemExit, "x must be inside"):
+                jobsearch.main()
 
     def test_ziprecruiter_only_for_us_ca_and_pack_overrides(self):
         home = self.tmp()

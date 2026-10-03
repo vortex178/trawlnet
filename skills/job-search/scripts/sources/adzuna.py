@@ -6,7 +6,7 @@ import re
 import urllib.error
 import urllib.parse
 
-from common import HOME, html_to_text, parse_date
+from common import confined, html_to_text, parse_date
 
 from . import net
 
@@ -16,7 +16,7 @@ def fetch_adzuna(cfg: dict) -> list:
     Results carry a 500-char snippet; the full posting (<details_domain>/details/<id>) is fetched only when shortlisted."""
     import time
     from common import load_profiles
-    key_path = HOME / (cfg.get("adzuna_key_file") or ".secrets/adzuna.json")
+    key_path = confined(cfg.get("adzuna_key_file"), ".secrets/adzuna.json", "adzuna_key_file")
     if not key_path.exists():
         raise RuntimeError(f"no key at {key_path.name}")
     k = json.loads(key_path.read_text())

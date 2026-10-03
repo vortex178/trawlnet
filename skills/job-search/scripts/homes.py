@@ -47,7 +47,7 @@ def _entries(strict: bool = False) -> list:
         if strict:
             raise ValueError(f"{path} is unreadable or damaged ({e}); fix or delete it")
         return []
-    return [line for line in text.split("\n") if os.path.isabs(line)]
+    return [line for line in text.replace("\r", "").split("\n") if os.path.isabs(line)]
 
 
 def _listed(home: Path, entries: list) -> bool:
