@@ -13,6 +13,7 @@ import common
 import db
 import mcp_server as srv
 import mcp_tools  # noqa: F401  (registers the tools)
+import urlguard
 
 
 def call(name, **args):
@@ -189,7 +190,7 @@ class ReadTools(unittest.TestCase):
 
     @staticmethod
     def resolves(*ips):
-        return mock.patch.object(mcp_tools.socket, "getaddrinfo",
+        return mock.patch.object(urlguard.socket, "getaddrinfo",
                                  return_value=[(2, 1, 6, "", (ip, 0)) for ip in ips])
 
     def test_urls_must_be_public_http(self):
@@ -203,6 +204,8 @@ class ReadTools(unittest.TestCase):
             "http://[::ffff:127.0.0.1]/": "::ffff:127.0.0.1", "http://100.100.1.1/": "100.100.1.1",
             "http://224.0.0.1/": "224.0.0.1",
             "http://[::ffff:10.0.0.1]/": "::ffff:10.0.0.1", "http://127.0.0.1.nip.io/": "127.0.0.1",
+            "http://[64:ff9b::a00:1]/": "64:ff9b::a00:1", "http://[::7f00:1]/": "::7f00:1",  # embedded IPv4
+            "http://[2002:a00:1::1]/": "2002:a00:1::1", "https://nat64.example/": "64:ff9b:1::a00:1",
             "https://mixed.example/": ("93.184.216.34", "10.1.1.1"),  # one private answer is enough to refuse
             "https://x.example/a\x00b": "93.184.216.34", "https://x.example/a\rb": "93.184.216.34",
             "http://127.0.0.1\t.x.example/": "93.184.216.34",  # urlsplit would drop the tab
@@ -215,11 +218,12 @@ class ReadTools(unittest.TestCase):
         self.assertIn("url is required", call("fetch_job_description", url=5))
         self.assertIn("url is required", call("fetch_job_description", url=""))
         self.assertIn("too long", call("fetch_job_description", url="https://x.example/" + "a" * 2100))
-        with mock.patch.object(mcp_tools.socket, "getaddrinfo", side_effect=OSError("nodename nor servname")):
+        with mock.patch.object(urlguard.socket, "getaddrinfo", side_effect=OSError("nodename nor servname")):
             self.assertIn("cannot resolve nope.example", call("fetch_job_description", url="https://nope.example/"))
         with mock.patch.object(mcp_tools, "fetch_job", return_value=self.JOB) as fetch, self.resolves("8.8.8.8"):
             call("fetch_job_description", url="https://x.example/Senior Engineer")  # raw space from a listing
             self.assertEqual(fetch.call_args[0][0], "https://x.example/Senior%20Engineer")
+            self.assertTrue(fetch.call_args[1]["public_only"])  # redirects are checked too
         for url in ("http://8.8.8.8/job", "https://boards.example:443/j?gh_jid=5", "http://[2606:4700::1111]/"):
             with mock.patch.object(mcp_tools, "fetch_job", return_value=self.JOB), \
                     self.resolves("8.8.8.8", "2606:4700::1111"):
@@ -232,7 +236,7 @@ class ReadTools(unittest.TestCase):
         self.addCleanup(patch.stop)
         args = {"company": "Acme", "role": "Backend Engineer", "score": 72, "profile": "appsec",
                 "url": "https://boards.example/acme/1", "location": "Remote", **kw}
-        offline = mock.patch.object(mcp_tools.socket, "getaddrinfo", side_effect=OSError("offline"))
+        offline = mock.patch.object(urlguard.socket, "getaddrinfo", side_effect=OSError("offline"))
         with offline:  # the URL is stored, never fetched
             return call("track_job", **args)
 

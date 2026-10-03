@@ -31,7 +31,7 @@ ATS_FETCHERS = {b.name: b.fetch for b in BOARDS.values() if b.fetch and not b.ca
 UNDOCUMENTED_ATS = {n for n in ATS_FETCHERS if BOARDS[n].undocumented}
 
 
-def custom_description(detail_url: str, budget=None) -> str:
+def custom_description(detail_url: str, budget=None, public_only: bool = False) -> str:
     """Full posting text, or "" when none could be obtained (nav/CSS-only pages are never returned as a JD)."""
     text = ""
     for board in BOARDS.values():  # known JS-rendered/embedded career sites
@@ -44,7 +44,8 @@ def custom_description(detail_url: str, budget=None) -> str:
         if text:  # structured sources: trusted as is, no keyword heuristics
             return text
     try:
-        text = html_to_text(net.get(detail_url, timeout=20).decode("utf-8", "ignore"))
+        page = net.get(detail_url, timeout=20, **({"public_only": True} if public_only else {}))
+        text = html_to_text(page.decode("utf-8", "ignore"))
     except Exception:
         pass
     if not _looks_like_jd(text) and budget is not None and budget.left() > 0:  # JS-rendered/nav-only page -> Firecrawl (1 credit)

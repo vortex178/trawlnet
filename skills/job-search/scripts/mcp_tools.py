@@ -3,14 +3,12 @@ track_job, which reach outward. Importing this module registers them."""
 from __future__ import annotations
 
 import http.client
-import ipaddress
 import json
 import re
-import socket
-import urllib.parse
 
 import db
 import tracker
+import urlguard
 from common import DATA, load_config, load_profiles
 from jobsearch import fetch_job, status_data, track_job
 from mcp_server import tool
@@ -167,51 +165,18 @@ def query_tracker(args: dict) -> dict:
     return {**out, "warning": warning} if warning else out
 
 
-def _public(ip) -> bool:
-    ip = getattr(ip, "ipv4_mapped", None) or ip  # same verdict on every Python for ::ffff:a.b.c.d
-    return ip.is_global and not ip.is_multicast
-
-
 def _http_url(args: dict, name: str = "url", resolve: bool = True) -> str:
-    """A public http(s) URL on port 80/443 without credentials. The model picks it (steerable by posting text), so
-    every address the name resolves to must be global; this also catches decimal/hex IPs and names like nip.io.
-    Redirects and DNS rebinding after the check are accepted residual risk for a local, ask-first tool.
-    `resolve=False` skips the lookup for URLs that are only stored, never fetched."""
+    """A public http(s) URL (urlguard.check_url). The model picks it (steerable by posting text), so every address the
+    name resolves to must be global; this also catches decimal/hex IPs and names like nip.io. Redirects are checked
+    in the fetch (urlguard.opener); DNS rebinding after the check is accepted residual risk for a local, ask-first
+    tool. `resolve=False` skips the lookup for URLs that are only stored, never fetched."""
     url = args.get(name)
     if not isinstance(url, str) or not url.strip():
         raise ValueError(f"{name} is required")
     url = url.strip().replace(" ", "%20")  # listing links stored by scrapers may carry raw spaces
     if len(url) > MAX_URL:
         raise ValueError(f"{name} is too long (max {MAX_URL} characters)")
-    if re.search(r"[\x00-\x20\x7f]", url):  # urlsplit drops tabs/newlines, so the checked URL would differ
-        raise ValueError(f"{name} must not contain control characters")
-    parts = urllib.parse.urlsplit(url)
-    host = (parts.hostname or "").lower().rstrip(".")
-    try:
-        port = parts.port
-    except ValueError:
-        port = -1
-    if parts.scheme not in ("http", "https") or not host or parts.username or parts.password:
-        raise ValueError(f"{name} must be an http(s) URL without credentials")
-    if port not in (None, 80, 443):
-        raise ValueError(f"{name} must use port 80 or 443")
-    if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
-        raise ValueError(f"{name} must be a public address")
-    try:  # a literal address needs no lookup, so it is checked even when resolve=False
-        literal = ipaddress.ip_address(host)
-    except ValueError:
-        literal = None
-    if literal is not None and not _public(literal):
-        raise ValueError(f"{name} must be a public address")
-    if not resolve:
-        return url
-    try:
-        addrs = socket.getaddrinfo(host, port or (80 if parts.scheme == "http" else 443), proto=socket.IPPROTO_TCP)
-    except OSError:
-        raise ValueError(f"{name}: cannot resolve {host}")
-    for info in addrs:
-        if not _public(ipaddress.ip_address(info[4][0].split("%")[0])):
-            raise ValueError(f"{name} must be a public address")
+    urlguard.check_url(url, name, resolve)
     return url
 
 
@@ -235,7 +200,7 @@ def _text(args: dict, name: str) -> str:
 def fetch_job_description(args: dict) -> dict:
     url = _http_url(args)
     try:
-        job = fetch_job(url, load_config())
+        job = fetch_job(url, load_config(), public_only=True)
     except (OSError, http.client.HTTPException, KeyError, TypeError, AttributeError) as e:  # network or API-shape
         raise ValueError(f"could not fetch {url}: {type(e).__name__}: {e}")
     if not job:

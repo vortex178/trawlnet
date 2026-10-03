@@ -6,6 +6,7 @@ import re
 import urllib.request
 from functools import lru_cache
 
+import urlguard
 from common import UA, load_config
 
 
@@ -22,9 +23,10 @@ def places_rx() -> str:
     return "|".join(re.escape(p) for p in pack()["country_places"])
 
 
-def get(url: str, timeout: int = 30) -> bytes:
+def get(url: str, timeout: int = 30, public_only: bool = False) -> bytes:
+    """public_only: every redirect target must pass urlguard (for URLs a model or a posting chose)."""
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with (urlguard.opener().open if public_only else urllib.request.urlopen)(req, timeout=timeout) as r:
         return r.read()
 
 

@@ -620,8 +620,9 @@ def update_claude_md(run: str, row: str, keep: int = 7) -> None:
     path.write_text(f"{head}{start}\n" + "\n".join(lines) + f"\n{end}{tail}")
 
 
-def fetch_job(page_url: str, cfg: dict, date: str | None = None):
+def fetch_job(page_url: str, cfg: dict, date: str | None = None, public_only: bool = False):
     """One job's (title, company, location, description, canonical url) via its ATS API or a page fetch, else None.
+    public_only: the page fetch refuses redirects to non-public addresses (URLs a model chose).
     Writes no JD file: a page fetch creates the run dir, and a JS-rendered page that needs a credit also writes the
     Firecrawl ledger and cache."""
     import urllib.request
@@ -649,7 +650,7 @@ def fetch_job(page_url: str, cfg: dict, date: str | None = None):
     if not job and "linkedin.com" not in page_url:
         from firecrawl import Budget
         from sources import custom_description
-        body = custom_description(page_url, Budget(cfg, date))  # free fetch, Firecrawl only if JS-rendered
+        body = custom_description(page_url, Budget(cfg, date), public_only)  # free fetch, Firecrawl only if JS-rendered
         if len(body) >= 600:
             job = ("(see description)", re.sub(r"^www\.", "", url.split("/")[2]), "", body, page_url)
     return tuple(x.strip() if isinstance(x, str) else x for x in job) if job else None
