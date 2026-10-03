@@ -696,8 +696,9 @@ def cmd_track(a, cfg):
     print(f"tracked {a.company} — {a.role}: {r['pushed']} pushed, {r['pending']} pending ({r['message']})")
 
 
-def status_data(cfg) -> dict:
-    """Config / profile / seen / tracker summary; `status` prints it, the MCP server returns it."""
+def status_data(cfg, read_only: bool = False) -> dict:
+    """Config / profile / seen / tracker summary; `status` prints it, the MCP server returns it (read_only: never
+    creating or migrating jobs.db)."""
     from setup import seed_warnings
     from tracker import describe
     companies = json.loads(COMPANIES_PATH.read_text()) if COMPANIES_PATH.exists() else []
@@ -705,7 +706,7 @@ def status_data(cfg) -> dict:
             "max_age_days": cfg["max_age_days"], "remote_scope": cfg.get("remote_scope"),
             "sources": [k for k, v in cfg["sources"].items() if v], "profiles": list(load_profiles()),
             "companies": len(companies), "companies_active": sum(bool(c.get("active", True)) for c in companies),
-            "seen": db.seen_count(), "tracker": describe(cfg), "warnings": seed_warnings(HOME)}
+            "seen": db.seen_count(read_only), "tracker": describe(cfg), "warnings": seed_warnings(HOME)}
 
 
 def cmd_status(a, cfg):

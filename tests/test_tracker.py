@@ -48,6 +48,31 @@ class ConfigHelpersTest(unittest.TestCase):
         self.assertEqual(tracker._row(["A", "B", 70], ["company", "role", "score", "url"]), ["A", "B", 70, ""])
 
 
+    def test_read_rows_header_and_layout_warning(self):
+        def read(*table):
+            with mock.patch.object(tracker.CsvBackend, "read_table", return_value=list(table)):
+                return tracker.read_rows({})  # default columns: company, role, score, url, profile, status
+        blank = dict.fromkeys(tracker.DEFAULT_COLUMNS, "")
+        row = ["Acme", "Dev", "80", "https://x/1", "p", ""]
+        self.assertEqual(read(), ([], ""))
+        for head in (tracker.header({}) + ["", ""], tracker.header({}) + ["Notes"],  # more columns than configured
+                     ["\ufeffCompany"] + tracker.header({})[1:]):  # a CSV re-saved from Excel
+            self.assertEqual(read(head, row), ([{**dict(zip(blank, row)), "score": 80}], ""), head)
+        self.assertEqual(read([], ["", ""], tracker.header({}), row)[0][0]["company"], "Acme")  # leading blank rows
+        self.assertLess(len(read(["x" * 1000], row)[1]), 500)
+        for first in (row, ["Acme", "Dev", "70"]):  # a tab never initialised: its first job is kept
+            rows, warning = read(first)
+            self.assertEqual((rows[0]["company"], len(rows), warning), ("Acme", 1, ""))
+        translated = ["Firma", "Stelle", "Punkte", "Link", "Profil", "Stand"]
+        rows, warning = read(translated, row)
+        self.assertEqual(rows, [{**dict(zip(blank, row)), "score": 80}])  # the header is never a job
+        self.assertIn("differs from tracker.columns", warning)
+        old_layout = ["Role", "Company", "Match Score"]
+        rows, warning = read(old_layout, ["Dev", "Acme", "80"])
+        self.assertEqual((rows[0]["company"], rows[0]["score"]), ("Dev", 80))  # positional, as the engine writes
+        self.assertIn("['Role', 'Company', 'Match Score'] differs", warning)
+        self.assertIn("`./js tracker check`", warning)
+
 
 class CsvBackendTest(unittest.TestCase):
     def setUp(self):
@@ -60,6 +85,8 @@ class CsvBackendTest(unittest.TestCase):
     def test_check_before_and_after_init(self):
         self.assertIn("not created yet", out_of(self.b.check))
         self.assertIn("tracker-csv2.csv", out_of(self.b.init))
+        self.assertIn("header OK", out_of(self.b.check))
+        self.path.write_text("\ufeff" + self.path.read_text())  # re-saved as "CSV UTF-8"
         self.assertIn("header OK", out_of(self.b.check))
         out_of(self.b.init)  # idempotent: does not overwrite an existing file
         self.assertEqual(self.path.read_text().count("Company"), 1)
@@ -77,19 +104,20 @@ class CsvBackendTest(unittest.TestCase):
         self.assertEqual(rows, [HEADER, ["A", "B", "", "", ""], ["C", "D", "7", "", ""]])
 
     def test_read_rows(self):
-        self.assertEqual(self.b.read_rows(), [])  # no file yet
+        self.assertEqual(tracker.read_rows(self.cfg), ([], ""))  # no file yet
         self.b.append([{"company": "A", "role": "R", "score": "80", "url": "u", "status": "applied"},
                        {"company": "B", "score": "n/a"}])
         with self.path.open("a", newline="") as f:
             f.write(",,,,\n")  # blank row
-        rows = self.b.read_rows()
+        rows, warning = tracker.read_rows(self.cfg)
+        self.assertEqual(warning, "")
         self.assertEqual(rows[0], {"company": "A", "role": "R", "score": 80, "url": "u", "status": "applied"})
         self.assertEqual((rows[1]["company"], rows[1]["score"], len(rows)), ("B", "n/a", 2))
 
     def test_unreadable_csv_is_unavailable(self):
         self.b.append([{"company": "A"}])
         with mock.patch.object(tracker.csv, "reader", side_effect=csv.Error("line contains NUL")):
-            for method in (self.b.read_rows, self.b.check):
+            for method in (self.b.read_table, self.b.check):
                 with self.assertRaisesRegex(tracker.Unavailable, "unreadable: line contains NUL"):
                     method()
 
@@ -211,9 +239,11 @@ class SheetsBackendTest(unittest.TestCase):
         b = self.make(sheet_tab_gid=5)
         sess = FakeSession()
         self.use(b, sess)
-        rows = b.read_rows()
+        with mock.patch.object(tracker, "backend", return_value=b):
+            rows, warning = tracker.read_rows(b.cfg)
         self.assertEqual([r["company"] for r in rows], ["a", "b"])  # header skipped
         self.assertEqual(rows[0], {"company": "a", "role": "", "score": "", "url": "", "status": ""})
+        self.assertIn("header row ['Company'] differs", warning)
         self.assertIn("/values/%27Jobs%27%21A%3AE", sess.calls[-1][1])
 
     def test_auth_failure_is_unavailable_and_keeps_rows_queued(self):
@@ -231,7 +261,7 @@ class SheetsBackendTest(unittest.TestCase):
         self.addCleanup(lambda: pending.unlink(missing_ok=True))
         with mock.patch.dict(sys.modules, mods), mock.patch.object(tracker, "PENDING_ROWS_PATH", pending), \
                 mock.patch.object(tracker, "backend", return_value=b):
-            for call in (b.read_rows, b.check, b.init, lambda: b.append([{"company": "A"}])):
+            for call in (b.read_table, b.check, b.init, lambda: b.append([{"company": "A"}])):
                 with self.assertRaisesRegex(tracker.Unavailable, r"^Google auth failed: invalid_grant: Token"):
                     call()
             tracker.queue_rows([{"company": "A"}])
@@ -250,7 +280,7 @@ class SheetsBackendTest(unittest.TestCase):
         b = self.make()
         self.use(b, Offline())
         with mock.patch.dict(sys.modules, {"requests": types.SimpleNamespace(RequestException=ConnectionError)}):
-            for call in (b.read_rows, b.check, b.init, lambda: b.append([{"company": "A"}])):
+            for call in (b.read_table, b.check, b.init, lambda: b.append([{"company": "A"}])):
                 with self.assertRaisesRegex(tracker.Unavailable, r"^Google Sheets request failed: Max retries") as cm:
                     call()
                 self.assertLess(len(str(cm.exception)), 340)

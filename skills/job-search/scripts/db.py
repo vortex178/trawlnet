@@ -10,6 +10,7 @@ Legacy files (data/seen.jsonl, data/wwr_verify.json) are imported once and renam
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 
@@ -31,6 +32,8 @@ MIGRATIONS = {
     """,
 }
 _conn = None
+UPGRADE = "jobs.db needs an upgrade or a legacy import; run `./js status` once in the data folder"
+UNREADABLE = "jobs.db cannot be read now ({}); retry, or run `./js status` once in the data folder"
 
 
 def connect() -> sqlite3.Connection:
@@ -48,6 +51,34 @@ def connect() -> sqlite3.Connection:
                 _conn.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (str(v),))
         _import_legacy(_conn)
     return _conn
+
+
+@contextlib.contextmanager
+def reading():
+    """jobs.db for callers that must not write (the MCP read tools): the open connection, else a read-only one; None
+    when there is no jobs.db yet. Never creates, migrates or imports; raises ValueError(UPGRADE) when that is due."""
+    legacy = (DATA / "seen.jsonl").exists() or (DATA / "wwr_verify.json").exists()
+    if _conn is not None or not DB_PATH.exists():
+        if _conn is None and legacy:
+            raise ValueError(UPGRADE)
+        yield _conn
+        return
+    try:
+        c = sqlite3.connect(DB_PATH.resolve().as_uri() + "?mode=ro", uri=True, timeout=30)
+    except sqlite3.Error as e:  # e.g. no read permission
+        raise ValueError(UNREADABLE.format(e))
+    try:
+        c.row_factory = sqlite3.Row
+        try:
+            has_meta = c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'").fetchone()
+            row = has_meta and c.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
+        except sqlite3.Error as e:  # locked by a long write, a crashed writer's journal, not a database
+            raise ValueError(UNREADABLE.format(e))
+        if legacy or not row or int(row[0]) < SCHEMA:
+            raise ValueError(UPGRADE)
+        yield c
+    finally:
+        c.close()
 
 
 def _import_legacy(c: sqlite3.Connection) -> None:
@@ -87,8 +118,11 @@ def mark_seen(rows: list, run: str | None = None) -> int:
     return c.total_changes - before
 
 
-def seen_count() -> int:
-    return connect().execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+def seen_count(read_only: bool = False) -> int:
+    if not read_only:
+        return connect().execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    with reading() as c:
+        return c.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] if c else 0
 
 
 # ---------- scores / runs ----------

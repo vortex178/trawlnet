@@ -81,10 +81,23 @@ def _row(d, cols: list) -> list:
     return ["" if d.get(c) is None else d.get(c) for c in cols]
 
 
-def _records(cfg: dict, rows: list) -> list:
-    """Sheet/CSV rows (header first) -> dicts keyed by field name; short rows are padded, blank rows skipped."""
-    cols, out = columns(cfg), []
-    for cells in rows[1:]:
+def _is_data(cols: list, cells: list) -> bool:
+    """A first row the engine wrote (a tab never initialised): an http(s) URL or a number in its column."""
+    d = {c: str(cells[i]).strip() for i, c in enumerate(cols) if i < len(cells)}
+    if d.get("url", "").startswith(("http://", "https://")):
+        return True
+    try:
+        float(d.get("score", ""))
+    except ValueError:
+        return False
+    return True
+
+
+def _records(cols: list, rows: list) -> list:
+    """Rows -> dicts by tracker.columns position, as the engine writes them; short rows are padded, blank rows
+    skipped."""
+    out = []
+    for cells in rows:
         if not any(str(c).strip() for c in cells):
             continue
         d = {c: cells[i] if i < len(cells) else "" for i, c in enumerate(cols)}
@@ -95,6 +108,25 @@ def _records(cfg: dict, rows: list) -> list:
                 pass
         out.append(d)
     return out
+
+
+def _label(cell) -> str:
+    return str(cell).lstrip("\ufeff").strip()  # a CSV re-saved from Excel starts with a byte-order mark
+
+
+def read_rows(cfg: dict) -> tuple:
+    """(rows as dicts, warning or ""). The first row is the header unless the engine wrote it. Rows map by position,
+    so a header showing another layout (tracker.columns changed later) gets a warning: older rows read shifted."""
+    cols, table = columns(cfg), backend(cfg).read_table()
+    while table and not any(str(c).strip() for c in table[0]):  # leading blank rows
+        table = table[1:]
+    if not table or _is_data(cols, table[0]):
+        return _records(cols, table), ""
+    head = [_label(c) for c in table[0][:len(cols)]]  # columns beyond the configured ones read fine
+    warning = "" if head == header(cfg) else (
+        f"the header row {str(head)[:300]} differs from tracker.columns {header(cfg)}: rows are read in "
+        "tracker.columns order and may be shifted; run `./js tracker check`")
+    return _records(cols, table[1:]), warning
 
 
 # ---------- CSV ----------
@@ -124,10 +156,8 @@ class CsvBackend:
             raise Unavailable(f"cannot write {rel(self.path)}: {e}")
         return f"appended to {rel(self.path)}"
 
-    def read_rows(self) -> list:
-        if not self.path.exists():
-            return []
-        return _records(self.cfg, self._read())
+    def read_table(self) -> list:
+        return self._read() if self.path.exists() else []
 
     def _read(self) -> list:
         try:
@@ -142,7 +172,8 @@ class CsvBackend:
             return
         rows = self._read()
         print(f"file: {rel(self.path)}, rows incl. header: {len(rows)}")
-        print("header OK" if rows and rows[0] == header(self.cfg) else f"HEADER MISMATCH: {rows[0] if rows else []}")
+        ok = rows and [_label(c) for c in rows[0]] == header(self.cfg)
+        print("header OK" if ok else f"HEADER MISMATCH: {rows[0] if rows else []}")
 
     def describe(self) -> str:
         return f"tracker: csv {rel(self.path)}"
@@ -203,11 +234,11 @@ class SheetsBackend:
         return f"appended to tab '{tab['title']}'"
 
     @_auth_unavailable
-    def read_rows(self) -> list:
+    def read_table(self) -> list:
         sess, _ = self._session()
         r = sess.get(f"{API}/{self.g['sheet_id']}/values/{self._range(self._tab(sess), f'A:{self.last_col}')}")
         r.raise_for_status()
-        return _records(self.cfg, r.json().get("values") or [])
+        return r.json().get("values") or []
 
     @_auth_unavailable
     def check(self):
