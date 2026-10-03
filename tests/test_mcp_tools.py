@@ -3,6 +3,7 @@ import _home  # noqa: F401  (must be first: sets JOB_SEARCH_HOME)
 
 import json
 import shutil
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,7 +44,8 @@ class ReadTools(unittest.TestCase):
         db.save_run("2026-09-06", {"scored": 5})
 
     def tearDown(self):
-        db._conn.close()
+        if db._conn:
+            db._conn.close()
         db.DATA, db.DB_PATH, db._conn = self._saved
         shutil.rmtree(self.dir, True)
 
@@ -140,6 +142,7 @@ class ReadTools(unittest.TestCase):
         self.assertEqual((r["total"], r["matched"]), (4, 4))
         self.assertEqual(r["rows"][1]["score"], "inf")  # a score cell that is not a number stays as typed
         self.assertEqual(r["columns"][-1], "status")
+        self.assertNotIn("warning", r)
         names = lambda **kw: [x["company"] for x in call("query_tracker", **kw)["rows"]]  # noqa: E731
         self.assertEqual(names(status="APPLIED"), ["Northwind"])
         self.assertEqual(names(status=""), ["Retyped", "Fabrikam"])
@@ -158,11 +161,12 @@ class ReadTools(unittest.TestCase):
         self.assertIn("status must be a string", call("query_tracker", status=1))
         self._tracker("", columns=["company", "status"])
         self.assertIn("no date_added column", call("query_tracker", since="2026-09-01"))
+        self.assertIn("differs from tracker.columns", call("query_tracker")["warning"])  # the header has 7 columns
 
     def test_query_tracker_backend_unavailable(self):
         self._tracker("")
         for exc in (mcp_tools.tracker.Unavailable("no key"), OSError("HTTP 500")):
-            with mock.patch.object(mcp_tools.tracker.CsvBackend, "read_rows", side_effect=exc):
+            with mock.patch.object(mcp_tools.tracker.CsvBackend, "read_table", side_effect=exc):
                 self.assertIn(f"tracker unavailable: {exc}", call("query_tracker"))
 
     JOB = ("Backend Engineer", "Acme", "Remote", "Build things. " * 60, "https://boards.example/acme/1")
@@ -249,6 +253,47 @@ class ReadTools(unittest.TestCase):
             r = self._track()
         self.assertEqual((r["status"], r["pushed"], r["pending"], r["message"]), ("tracked", 0, 1, "offline"))
         self.assertEqual(self._track()["status"], "already_seen")  # a retry must not add it twice
+
+    def test_read_tools_never_write_jobs_db(self):
+        db._conn.close()
+        db._conn = None
+        path = self.dir / "jobs.db"
+        before = path.stat().st_mtime_ns
+        self.assertEqual(call("search_jobs", status="scored")["count"], 1)  # through a read-only connection
+        self.assertEqual(call("get_job", key="a")["company"], "Northwind")
+        self.assertEqual(len(call("list_runs")["runs"]), 2)
+        self.assertEqual(call("status")["seen"], 3)
+        self.assertIsNone(db._conn)
+        self.assertEqual(path.stat().st_mtime_ns, before)
+        path.unlink()
+        self.assertEqual((call("search_jobs")["count"], call("list_runs")["runs"], call("status")["seen"]), (0, [], 0))
+        self.assertIn("no job with key 'a'", call("get_job", key="a"))
+        self.assertFalse(path.exists())
+
+    def test_read_tools_leave_upgrades_to_the_cli(self):
+        db._conn.close()
+        db._conn = None
+        path, legacy = self.dir / "jobs.db", self.dir / "seen.jsonl"
+        legacy.write_text('{"key": "z"}\n')
+        self.assertIn("run `./js status`", call("search_jobs"))  # with jobs.db
+        path.unlink()
+        self.assertIn("run `./js status`", call("list_runs"))  # without
+        self.assertTrue(legacy.exists())  # not imported
+        legacy.unlink()
+        for script in ("", "CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT); INSERT INTO meta VALUES ('schema', '0');"):
+            path.unlink(missing_ok=True)
+            c = sqlite3.connect(path)
+            c.executescript(script)
+            c.close()
+            for tool in ("status", "search_jobs", "list_runs"):
+                self.assertIn("jobs.db needs an upgrade", call(tool), (script, tool))
+        busy = sqlite3.OperationalError("database is locked")
+        with mock.patch.object(db.sqlite3, "connect", return_value=mock.Mock(execute=mock.Mock(side_effect=busy))):
+            self.assertIn("jobs.db cannot be read now (database is locked); retry", call("list_runs"))
+        with mock.patch.object(db.sqlite3, "connect", side_effect=sqlite3.OperationalError("unable to open")):
+            self.assertIn("jobs.db cannot be read now (unable to open)", call("search_jobs"))
+        path.write_bytes(b"not a database" * 100)
+        self.assertIn("jobs.db cannot be read now (file is not a database)", call("get_job", key="a"))
 
     def test_track_job_blank_location_is_allowed(self):
         for i, loc in enumerate(("  ", None)):

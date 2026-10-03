@@ -55,7 +55,7 @@ def _added_since(row: dict, since: str) -> bool:
 @tool("status", "Data folder summary: country, enabled sources, profiles, companies, seen-jobs count, tracker "
       "backend, queued rows and seed warnings.")
 def status(args: dict) -> dict:
-    return status_data(load_config())
+    return status_data(load_config(), read_only=True)
 
 
 @tool("search_jobs", "Search jobs the engine has seen, best score first. Filters combine with AND; `status` is e.g. "
@@ -83,35 +83,38 @@ def search_jobs(args: dict) -> dict:
         where.append("first_seen >= ?")
         params.append(args["since"])
     limit = _limit(args, 20)
-    rows = db.connect().execute(
-        "SELECT key, company, title, location, status, score, profile, source, first_seen, url FROM jobs"
-        + (" WHERE " + " AND ".join(where) if where else "")
-        + " ORDER BY score IS NULL, score DESC, first_seen DESC, key LIMIT ?", (*params, limit)).fetchall()
+    sql = ("SELECT key, company, title, location, status, score, profile, source, first_seen, url FROM jobs"
+           + (" WHERE " + " AND ".join(where) if where else "")
+           + " ORDER BY score IS NULL, score DESC, first_seen DESC, key LIMIT ?")
+    with db.reading() as c:
+        rows = c.execute(sql, (*params, limit)).fetchall() if c else []
     return {"count": len(rows), "jobs": [dict(r) for r in rows]}
 
 
 @tool("get_job", "One job by key (from search_jobs) with its score history: verdict, gates, strengths, gaps, flags "
       "and apply URL, newest run first." + UNTRUSTED, {"key": {"type": "string"}}, required=["key"])
 def get_job(args: dict) -> dict:
-    c = db.connect()
     if not isinstance(args.get("key"), str):
         raise ValueError("key must be a string")
-    job = c.execute("SELECT * FROM jobs WHERE key = ?", (args["key"],)).fetchone()
-    if not job:
-        raise ValueError(f"no job with key {args['key']!r}")
-    scores = []
-    for r in c.execute("SELECT * FROM scores WHERE key = ? ORDER BY run DESC", (args["key"],)):
-        scores.append({"run": r["run"], "profile": r["profile"], "score": r["score"], "raw_score": r["raw_score"],
-                       "verdict": r["verdict"], "apply_url": r["apply_url"],
-                       **{k: _json(r[f"{k}_json"]) for k in ("gates", "strengths", "gaps", "flags")}})
+    with db.reading() as c:
+        job = c and c.execute("SELECT * FROM jobs WHERE key = ?", (args["key"],)).fetchone()
+        if not job:
+            raise ValueError(f"no job with key {args['key']!r}")
+        scores = []
+        for r in c.execute("SELECT * FROM scores WHERE key = ? ORDER BY run DESC", (args["key"],)):
+            scores.append({"run": r["run"], "profile": r["profile"], "score": r["score"], "raw_score": r["raw_score"],
+                           "verdict": r["verdict"], "apply_url": r["apply_url"],
+                           **{k: _json(r[f"{k}_json"]) for k in ("gates", "strengths", "gaps", "flags")}})
     return {**dict(job), "scores": scores}
 
 
 @tool("list_runs", "Published runs, newest first, with their stats.",
       {"limit": {"type": "integer", "description": f"default 10, max {MAX_LIMIT}"}})
 def list_runs(args: dict) -> dict:
-    rows = db.connect().execute("SELECT id, published, stats_json FROM runs ORDER BY id DESC LIMIT ?",
-                                (_limit(args, 10),)).fetchall()
+    limit = _limit(args, 10)
+    with db.reading() as c:
+        rows = c.execute("SELECT id, published, stats_json FROM runs ORDER BY id DESC LIMIT ?",
+                         (limit,)).fetchall() if c else []
     return {"runs": [{"id": r["id"], "published": r["published"], "stats": _json(r["stats_json"])} for r in rows]}
 
 
@@ -129,7 +132,8 @@ def get_digest(args: dict) -> dict:
 
 
 @tool("query_tracker", "Read the job tracker (Google Sheet or CSV), newest rows first. Read-only: it never edits the "
-      "Status column or any row. Filters combine with AND. Each row has the configured tracker columns."
+      "Status column or any row. Filters combine with AND. Each row has the configured tracker columns; `warning` "
+      "appears when the sheet's header row shows another column layout."
       + UNTRUSTED, {
           "status": {"type": "string", "description": "case-insensitive match; empty string = rows with no status"},
           "company": {"type": "string", "description": "case-insensitive substring; empty = any"},
@@ -147,7 +151,7 @@ def query_tracker(args: dict) -> dict:
     if since and "date_added" not in tracker.columns(cfg):
         raise ValueError("the tracker has no date_added column")
     try:
-        rows = tracker.backend(cfg).read_rows()
+        rows, warning = tracker.read_rows(cfg)
     except (tracker.Unavailable, OSError) as e:
         raise ValueError(f"tracker unavailable: {e}")
 
@@ -159,7 +163,8 @@ def query_tracker(args: dict) -> dict:
                 and (min_score is None or (isinstance(score, int) and score >= min_score))
                 and (not since or _added_since(r, since)))
     hits = [r for r in reversed(rows) if keep(r)]
-    return {"columns": tracker.columns(cfg), "total": len(rows), "matched": len(hits), "rows": hits[:limit]}
+    out = {"columns": tracker.columns(cfg), "total": len(rows), "matched": len(hits), "rows": hits[:limit]}
+    return {**out, "warning": warning} if warning else out
 
 
 def _public(ip) -> bool:
