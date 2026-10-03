@@ -481,7 +481,7 @@ def _adjust_score(s: dict, job: dict, cfg: dict) -> None:
 
 
 def cmd_publish(a, cfg):
-    from tracker import flush, queue_rows
+    from tracker import flush, queue_lock, queue_rows
     d = run_dir(a.date)
     run = a.date or today()
     profiles = load_profiles()
@@ -503,31 +503,32 @@ def cmd_publish(a, cfg):
     leads += [r for r in short.values() if not r["jd"]]  # shortlisted without any description (never sent to a scorer)
     lead_keys = {j["key"] for j in leads}
     missing = [k for k in short if k not in scores and k not in lead_keys]
-    already = db.seen_keys()
-    min_score = cfg.get("min_score_for_tracker", cfg.get("min_score_for_sheet", 60))
-    sheet_rows, digest = [], []
-    now = today()
-    for k, s in sorted(scores.items(), key=lambda kv: -kv[1]["score"]):
-        j = short[k]
-        gate_fail = any(v == "fail" for v in (s.get("gates") or {}).values())
-        to_sheet = s["score"] >= min_score and s["verdict"] != "skip" and not gate_fail
-        if to_sheet and k not in already:
-            sheet_rows.append({"company": j["company"], "role": j["title"], "score": s["score"],
-                               "url": s.get("apply_url") or j["url"], "profile": s["profile"],
-                               "location": j.get("location", ""), "posted": j.get("posted") or "",
-                               "source": j["source"], "date_added": now, "status": ""})
-        digest.append((s, j, to_sheet))
-    job = lambda j: {k: j.get(k) for k in ("source", "company", "title", "location", "posted", "url")}  # noqa: E731
-    seen_rows = [{**r, "status": "rejected"} for r in read_jsonl(d / "rejected.jsonl")]
-    seen_rows += [{"key": k, "status": "scored", "score": s["score"], "profile": s["profile"], **job(short[k])}
-                  for k, s in scores.items()]
-    seen_rows += [{"key": j["key"], "status": "lead-no-jd", **job(j)} for j in leads]
-    seen_rows = [r for r in seen_rows if r["key"] not in already]
-    added = db.mark_seen(seen_rows, run)
-    db.save_scores(run, list(scores.values()))
-    if sheet_rows:
-        queue_rows(sheet_rows)
-    pushed, pending, msg = flush(cfg)
+    with queue_lock():  # as in track_job: seen check through flush
+        already = db.seen_keys()
+        min_score = cfg.get("min_score_for_tracker", cfg.get("min_score_for_sheet", 60))
+        sheet_rows, digest = [], []
+        now = today()
+        for k, s in sorted(scores.items(), key=lambda kv: -kv[1]["score"]):
+            j = short[k]
+            gate_fail = any(v == "fail" for v in (s.get("gates") or {}).values())
+            to_sheet = s["score"] >= min_score and s["verdict"] != "skip" and not gate_fail
+            if to_sheet and k not in already:
+                sheet_rows.append({"company": j["company"], "role": j["title"], "score": s["score"],
+                                   "url": s.get("apply_url") or j["url"], "profile": s["profile"],
+                                   "location": j.get("location", ""), "posted": j.get("posted") or "",
+                                   "source": j["source"], "date_added": now, "status": ""})
+            digest.append((s, j, to_sheet))
+        job = lambda j: {k: j.get(k) for k in ("source", "company", "title", "location", "posted", "url")}  # noqa: E731
+        seen_rows = [{**r, "status": "rejected"} for r in read_jsonl(d / "rejected.jsonl")]
+        seen_rows += [{"key": k, "status": "scored", "score": s["score"], "profile": s["profile"], **job(short[k])}
+                      for k, s in scores.items()]
+        seen_rows += [{"key": j["key"], "status": "lead-no-jd", **job(j)} for j in leads]
+        seen_rows = [r for r in seen_rows if r["key"] not in already]
+        added = db.mark_seen(seen_rows, run)
+        db.save_scores(run, list(scores.values()))
+        if sheet_rows:
+            queue_rows(sheet_rows)
+        pushed, pending, msg = flush(cfg)
 
     lines = [f"# Job search digest — {run}", "",
              f"Scored {len(scores)} of {len(short)} shortlisted; {len(sheet_rows)} added to tracker "
@@ -670,16 +671,17 @@ def cmd_fetch_url(a, cfg):
 
 def track_job(cfg: dict, company: str, role: str, score: int, profile: str, url: str, location: str = "") -> dict:
     """Append one job to the tracker and mark it seen; a job already seen is left alone."""
-    from tracker import flush, queue_rows
+    from tracker import flush, queue_lock, queue_rows
     loc = location or ""
     key = job_key(company, role, "remote" if "remote" in loc.lower() else norm(loc).strip()[:40])
-    if key in db.seen_keys():
-        return {"status": "already_seen", "key": key}
-    queue_rows([{"company": company, "role": role, "score": score, "url": url, "profile": profile,
-                 "location": loc, "posted": "", "source": "manual", "date_added": today(), "status": ""}])
-    db.mark_seen([{"key": key, "status": "tracked", "score": score, "profile": profile, "source": "manual",
-                   "company": company, "title": role, "location": loc, "url": url}])
-    pushed, pending, msg = flush(cfg)
+    with queue_lock():  # atomic across processes: seen check, queue, and this flush pushing this row
+        if key in db.seen_keys():
+            return {"status": "already_seen", "key": key}
+        queue_rows([{"company": company, "role": role, "score": score, "url": url, "profile": profile,
+                     "location": loc, "posted": "", "source": "manual", "date_added": today(), "status": ""}])
+        db.mark_seen([{"key": key, "status": "tracked", "score": score, "profile": profile, "source": "manual",
+                       "company": company, "title": role, "location": loc, "url": url}])
+        pushed, pending, msg = flush(cfg)
     return {"status": "tracked", "key": key, "pushed": pushed, "pending": pending, "message": msg}
 
 

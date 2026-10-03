@@ -11,8 +11,10 @@ FIELDS. Rows produced while a backend is unavailable stay queued and are pushed 
 """
 from __future__ import annotations
 
+import contextlib
 import csv
 import functools
+import importlib
 import json
 import sys
 import urllib.parse
@@ -30,23 +32,26 @@ class Unavailable(Exception):
     """Backend can't be reached now (missing key, no access); rows stay queued."""
 
 
-def _auth_errors() -> tuple:
+def _optional(module: str, name: str) -> tuple:
+    """(module.name,), or () without that package (then _session raises Unavailable first)."""
     try:
-        from google.auth.exceptions import GoogleAuthError
-    except ImportError:  # no google-auth: _session raises ImportError first
+        return (getattr(importlib.import_module(module), name),)
+    except ImportError:
         return ()
-    return (GoogleAuthError,)
 
 
 def _auth_unavailable(fn):
-    """google-auth failures (expired or revoked key) surface on the first request: report them as Unavailable, so
-    flush keeps the rows queued and the CLI and MCP tools say why instead of crashing."""
+    """google-auth failures (expired or revoked key) and request failures (offline, timeouts, HTTP errors) surface on
+    a request: report them as Unavailable, so flush keeps the rows queued and the CLI and MCP tools say why instead of
+    crashing."""
     @functools.wraps(fn)
     def wrapped(*a, **kw):
         try:
             return fn(*a, **kw)
-        except _auth_errors() as e:
+        except _optional("google.auth.exceptions", "GoogleAuthError") as e:
             raise Unavailable(f"Google auth failed: {e.args[0] if e.args else e}") from e
+        except _optional("requests", "RequestException") as e:
+            raise Unavailable(f"Google Sheets request failed: {str(e)[:300]}") from e
     return wrapped
 
 
@@ -101,16 +106,22 @@ class CsvBackend:
 
     def init(self):
         if not self.path.exists() or not self.path.stat().st_size:
-            with self.path.open("w", newline="") as f:
-                csv.writer(f).writerow(header(self.cfg))
+            try:
+                with self.path.open("w", newline="") as f:
+                    csv.writer(f).writerow(header(self.cfg))
+            except OSError as e:
+                raise Unavailable(f"cannot write {rel(self.path)}: {e}")
         print(f"tracker file: {rel(self.path)}")
 
     def append(self, rows: list) -> str:
-        if not self.path.exists() or not self.path.stat().st_size:
-            with self.path.open("w", newline="") as f:
-                csv.writer(f).writerow(header(self.cfg))
-        with self.path.open("a", newline="") as f:
-            csv.writer(f).writerows(_row(r, columns(self.cfg)) for r in rows)
+        try:
+            if not self.path.exists() or not self.path.stat().st_size:
+                with self.path.open("w", newline="") as f:
+                    csv.writer(f).writerow(header(self.cfg))
+            with self.path.open("a", newline="") as f:
+                csv.writer(f).writerows(_row(r, columns(self.cfg)) for r in rows)
+        except OSError as e:  # open in a spreadsheet app that locks it (Windows), read-only: rows stay queued
+            raise Unavailable(f"cannot write {rel(self.path)}: {e}")
         return f"appended to {rel(self.path)}"
 
     def read_rows(self) -> list:
@@ -122,7 +133,7 @@ class CsvBackend:
         try:
             with self.path.open(newline="") as f:
                 return list(csv.reader(f))
-        except csv.Error as e:  # e.g. a NUL in the file (Python <= 3.10)
+        except (csv.Error, OSError) as e:  # e.g. a NUL in the file (Python <= 3.10), no read permission
             raise Unavailable(f"{rel(self.path)} is unreadable: {e}")
 
     def check(self):
@@ -151,10 +162,16 @@ class SheetsBackend:
             raise Unavailable("tracker.gsheets.sheet_id is not set")
         if not self.key.exists():
             raise Unavailable(f"service-account key not found at {rel(self.key)}")
-        from google.auth.transport.requests import AuthorizedSession
-        from google.oauth2 import service_account
-        creds = service_account.Credentials.from_service_account_file(
-            str(self.key), scopes=["https://www.googleapis.com/auth/spreadsheets"])
+        try:
+            from google.auth.transport.requests import AuthorizedSession
+            from google.oauth2 import service_account
+        except ImportError as e:
+            raise Unavailable(f"google-auth or requests is not installed ({e}); run `./js setup env`")
+        try:
+            creds = service_account.Credentials.from_service_account_file(
+                str(self.key), scopes=["https://www.googleapis.com/auth/spreadsheets"])
+        except (OSError, ValueError) as e:  # unreadable or not a service-account key
+            raise Unavailable(f"service-account key {rel(self.key)} is unusable: {e}")
         return AuthorizedSession(creds), creds.service_account_email
 
     def _tab(self, sess) -> dict:
@@ -243,26 +260,61 @@ def backend(cfg: dict):
     return BACKENDS[name](cfg)
 
 
+_lock_depth = 0
+
+
+@contextlib.contextmanager
+def queue_lock():
+    """Holds the queue across processes (the MCP server and CLI runs share it), so a flush never pushes a row twice
+    or truncates one queued meanwhile. Reentrant, so a caller can hold it around queue_rows + flush."""
+    global _lock_depth
+    if _lock_depth:
+        _lock_depth += 1
+        try:
+            yield
+        finally:
+            _lock_depth -= 1
+        return
+    try:
+        import fcntl
+    except ImportError:  # Windows: no lock
+        fcntl = None
+    with contextlib.ExitStack() as stack:
+        try:
+            f = stack.enter_context(PENDING_ROWS_PATH.with_name(PENDING_ROWS_PATH.name + ".lock").open("a"))
+            if fcntl:
+                fcntl.flock(f, fcntl.LOCK_EX)  # released when the file closes
+        except OSError:  # a read-only folder or a filesystem without locks (some network or sync mounts): unlocked
+            pass
+        _lock_depth = 1
+        try:
+            yield
+        finally:
+            _lock_depth = 0
+
+
 def queue_rows(rows: list) -> None:
-    append_jsonl(PENDING_ROWS_PATH, [{"row": r} for r in rows])
+    with queue_lock():
+        append_jsonl(PENDING_ROWS_PATH, [{"row": r} for r in rows])
 
 
 def flush(cfg=None) -> tuple:
     """Push queued rows. Returns (pushed, still_pending, message)."""
     cfg = cfg or load_config()
-    legacy = PENDING_ROWS_PATH.with_name("pending_sheet_rows.jsonl")  # pre-plugin queue file
-    if legacy.exists():
-        append_jsonl(PENDING_ROWS_PATH, read_jsonl(legacy))
-        legacy.unlink()
-    pending = [p["row"] for p in read_jsonl(PENDING_ROWS_PATH)]
-    if not pending:
-        return 0, 0, "nothing queued"
-    try:
-        msg = backend(cfg).append(pending)
-    except Unavailable as e:
-        return 0, len(pending), str(e)
-    write_jsonl(PENDING_ROWS_PATH, [])
-    return len(pending), 0, msg
+    with queue_lock():
+        legacy = PENDING_ROWS_PATH.with_name("pending_sheet_rows.jsonl")  # pre-plugin queue file
+        if legacy.exists():
+            append_jsonl(PENDING_ROWS_PATH, read_jsonl(legacy))
+            legacy.unlink()
+        pending = [p["row"] for p in read_jsonl(PENDING_ROWS_PATH)]
+        if not pending:
+            return 0, 0, "nothing queued"
+        try:
+            msg = backend(cfg).append(pending)
+        except Unavailable as e:
+            return 0, len(pending), str(e)
+        write_jsonl(PENDING_ROWS_PATH, [])
+        return len(pending), 0, msg
 
 
 def describe(cfg: dict) -> str:

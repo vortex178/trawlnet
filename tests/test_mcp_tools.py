@@ -243,6 +243,13 @@ class ReadTools(unittest.TestCase):
         self.assertEqual(again, {"status": "already_seen", "key": r["key"]})
         self.assertEqual(call("query_tracker")["total"], 1)
 
+    def test_track_job_saved_but_unpushed_is_tracked(self):
+        offline = mcp_tools.tracker.Unavailable("offline")
+        with mock.patch.object(mcp_tools.tracker.CsvBackend, "append", side_effect=offline):
+            r = self._track()
+        self.assertEqual((r["status"], r["pushed"], r["pending"], r["message"]), ("tracked", 0, 1, "offline"))
+        self.assertEqual(self._track()["status"], "already_seen")  # a retry must not add it twice
+
     def test_track_job_blank_location_is_allowed(self):
         for i, loc in enumerate(("  ", None)):
             self.assertEqual(self._track(role=f"Role {i}", location=loc)["status"], "tracked")
