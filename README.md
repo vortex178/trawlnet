@@ -86,8 +86,8 @@ must lie inside the data folder.
 Read tools: `status`, `search_jobs`, `get_job`, `list_runs`, `get_digest`, `query_tracker` (the tracker, read-only).
 Action tools: `fetch_job_description` (fetches one public job URL; returns the text without saving it, and a Firecrawl
 render, if enabled, uses one of today's run credits) and `track_job` (adds one tracker row); Claude Code asks before each
-call. Resources expose your profiles, `master` facts, scoring context and digests; prompts
-`tailor_for_job` and `weekly_review`. Job text is returned as untrusted data. The full `run` stays a skill command.
+call until you allow the tool. Resources expose your profiles, `master` facts, scoring context and digests; prompts
+`tailor_for_job` and `weekly_review`. Files reached through a symlink (including a linked `digests/` or `profiles/` folder) are never served. Job text is returned as untrusted data. The full `run` stays a skill command.
 
 ## Costs
 

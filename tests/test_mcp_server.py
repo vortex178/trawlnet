@@ -95,6 +95,29 @@ class Hostile(unittest.TestCase):
         text = json.loads(json.loads(out.getvalue())["result"]["content"][0]["text"])["t"]
         self.assertEqual(text, "\ud800 é")
 
+    def test_deeply_nested_json_is_a_parse_error(self):
+        with mock.patch.object(srv.json, "loads", side_effect=RecursionError):  # ~1000 levels on Python < 3.14
+            self.assertEqual(srv.handle("[[[")["error"]["code"], srv.PARSE_ERROR)
+        deep = '{"jsonrpc":"2.0","id":' + "[" * 5000 + "]" * 5000 + ',"method":"ping"}'
+        self.assertIn(srv.handle(deep)["error"]["code"], (srv.PARSE_ERROR, srv.INVALID_REQUEST))
+
+    def test_a_non_scalar_id_is_never_echoed(self):
+        for msg in ('{"jsonrpc":"2.0","id":[1],"method":5}', '{"jsonrpc":"2.0","id":{"a":1}}', '[1]'):
+            self.assertEqual(srv.handle(msg), {"jsonrpc": "2.0", "id": None, "error": {
+                "code": srv.INVALID_REQUEST, "message": "Invalid request"}})
+        self.assertEqual(srv.handle('{"jsonrpc":"2.0","id":7}')["id"], 7)
+
+    def test_ids_must_be_strings_or_integers(self):
+        for rid in ([1], {"a": 1}, None, True, 1.5):
+            msg = json.dumps({"jsonrpc": "2.0", "id": rid, "method": "ping"})
+            self.assertEqual(srv.handle(msg)["error"]["code"], srv.INVALID_REQUEST, rid)
+        self.assertEqual(rpc("ping", rid="x")["id"], "x")
+
+    def test_non_string_names_are_invalid_params(self):
+        for method, key in (("tools/call", "name"), ("prompts/get", "name"), ("resources/read", "uri")):
+            for bad in (["x"], {}, 5):
+                self.assertEqual(rpc(method, {key: bad})["error"]["code"], srv.INVALID_PARAMS, (method, bad))
+
     def test_environment_errors_are_tool_errors(self):
         import sqlite3
         import yaml

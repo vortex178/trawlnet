@@ -125,10 +125,51 @@ class ReadTools(unittest.TestCase):
         (self.dir / "digests").mkdir()
         (self.dir / "digests" / "2026-09-02.md").write_text("# one")
         (self.dir / "digests" / "2026-09-06.md").write_text("# two")
+        patch = mock.patch.object(common, "HOME", self.dir)  # the digests live in the (patched) data folder
+        patch.start()
+        self.addCleanup(patch.stop)
         self.assertEqual(call("get_digest"), {"date": "2026-09-06", "markdown": "# two"})
         self.assertEqual(call("get_digest", date="2026-09-02")["markdown"], "# one")
         self.assertIn("no digest for 2026-09-03", call("get_digest", date="2026-09-03"))
         self.assertIn("YYYY-MM-DD", call("get_digest", date="../config"))
+
+    def test_get_digest_refuses_a_link_out_of_the_folder(self):
+        outside = Path(tempfile.mkdtemp()) / "secret.txt"
+        outside.write_text("secret")
+        self.addCleanup(shutil.rmtree, outside.parent, True)
+        patch = mock.patch.object(common, "HOME", self.dir)
+        patch.start()
+        self.addCleanup(patch.stop)
+        (self.dir / "digests").mkdir()
+        (self.dir / "digests" / "2099-01-01.md").symlink_to(outside)
+        (self.dir / "config.yaml").write_text("secret: 1")
+        (self.dir / "digests" / "2099-01-02.md").symlink_to(self.dir / "config.yaml")  # inside the folder, not digests/
+        for args in ({}, {"date": "2099-01-01"}, {"date": "2099-01-02"}):
+            self.assertIn("symlink", call("get_digest", **args))
+
+    def test_get_digest_refuses_a_linked_digests_directory(self):
+        patch = mock.patch.object(common, "HOME", self.dir)
+        patch.start()
+        self.addCleanup(patch.stop)
+        (self.dir / "secrets").mkdir()
+        (self.dir / "secrets" / "2026-01-01.md").write_text("SECRETKEY")
+        (self.dir / "digests").symlink_to(self.dir / "secrets")
+        for args in ({}, {"date": "2026-01-01"}):
+            self.assertIn("symlink", call("get_digest", **args))
+        elsewhere = Path(tempfile.mkdtemp())  # a DATA outside HOME
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        (elsewhere / "digests").mkdir()
+        (elsewhere / "digests" / "2026-01-01.md").write_text("x")
+        with mock.patch.object(mcp_tools, "DATA", elsewhere):
+            self.assertIn("outside the data folder", call("get_digest", date="2026-01-01"))
+
+    def test_out_of_range_integers_and_annotations(self):
+        self.assertIn("out of range", call("search_jobs", min_score=10**23))
+        tools = {t["name"]: t["annotations"] for t in srv.handle(
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')["result"]["tools"]}
+        self.assertFalse(tools["get_digest"]["openWorldHint"])
+        self.assertTrue(tools["query_tracker"]["openWorldHint"])
+        self.assertFalse(tools["fetch_job_description"]["destructiveHint"])
 
     def test_get_digest_without_any(self):
         self.assertIn("no digest for any run", call("get_digest"))
