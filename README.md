@@ -50,6 +50,8 @@ Country specifics (cities, remote-eligibility words, currency, FX, Adzuna domain
 
 Requirements: Claude Code, Python ≥ 3.9 (or [`uv`](https://docs.astral.sh/uv/)).
 
+> **Free Claude plans:** the full run needs Claude Code (paid). Free-tier support through Claude Desktop is planned, not yet available.
+
 ```
 /plugin marketplace add vortex178/trawlnet
 /plugin install trawlnet@trawlnet
