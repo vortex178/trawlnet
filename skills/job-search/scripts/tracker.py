@@ -55,6 +55,22 @@ def _row(d, cols: list) -> list:
     return ["" if d.get(c) is None else d.get(c) for c in cols]
 
 
+def _records(cfg: dict, rows: list) -> list:
+    """Sheet/CSV rows (header first) -> dicts keyed by field name; short rows are padded, blank rows skipped."""
+    cols, out = columns(cfg), []
+    for cells in rows[1:]:
+        if not any(str(c).strip() for c in cells):
+            continue
+        d = {c: cells[i] if i < len(cells) else "" for i, c in enumerate(cols)}
+        if d.get("score"):
+            try:
+                d["score"] = int(float(d["score"]))
+            except (ValueError, OverflowError):  # "n/a", "inf", "1e999": keep the cell as typed
+                pass
+        out.append(d)
+    return out
+
+
 # ---------- CSV ----------
 
 class CsvBackend:
@@ -75,6 +91,12 @@ class CsvBackend:
         with self.path.open("a", newline="") as f:
             csv.writer(f).writerows(_row(r, columns(self.cfg)) for r in rows)
         return f"appended to {rel(self.path)}"
+
+    def read_rows(self) -> list:
+        if not self.path.exists():
+            return []
+        with self.path.open(newline="") as f:
+            return _records(self.cfg, list(csv.reader(f)))
 
     def check(self):
         if not self.path.exists():
@@ -135,6 +157,12 @@ class SheetsBackend:
         if not r.ok:
             raise Unavailable(f"append failed: {r.status_code} {r.text[:200]}")
         return f"appended to tab '{tab['title']}'"
+
+    def read_rows(self) -> list:
+        sess, _ = self._session()
+        r = sess.get(f"{API}/{self.g['sheet_id']}/values/{self._range(self._tab(sess), f'A:{self.last_col}')}")
+        r.raise_for_status()
+        return _records(self.cfg, r.json().get("values") or [])
 
     def check(self):
         sess, email = self._session()

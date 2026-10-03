@@ -73,6 +73,16 @@ class CsvBackendTest(unittest.TestCase):
         rows = list(csv.reader(self.path.read_text().splitlines()))
         self.assertEqual(rows, [HEADER, ["A", "B", "", "", ""], ["C", "D", "7", "", ""]])
 
+    def test_read_rows(self):
+        self.assertEqual(self.b.read_rows(), [])  # no file yet
+        self.b.append([{"company": "A", "role": "R", "score": "80", "url": "u", "status": "applied"},
+                       {"company": "B", "score": "n/a"}])
+        with self.path.open("a", newline="") as f:
+            f.write(",,,,\n")  # blank row
+        rows = self.b.read_rows()
+        self.assertEqual(rows[0], {"company": "A", "role": "R", "score": 80, "url": "u", "status": "applied"})
+        self.assertEqual((rows[1]["company"], rows[1]["score"], len(rows)), ("B", "n/a", 2))
+
     def test_describe(self):
         self.assertEqual(self.b.describe(), "tracker: csv tracker-csv2.csv")
         tracker.write_jsonl(tracker.PENDING_ROWS_PATH, [])
@@ -186,6 +196,15 @@ class SheetsBackendTest(unittest.TestCase):
         self.use(b, sess)
         with self.assertRaisesRegex(tracker.Unavailable, "append failed: 400 bad request"):
             b.append([{"company": "A"}])
+
+    def test_read_rows_maps_columns_and_pads(self):
+        b = self.make(sheet_tab_gid=5)
+        sess = FakeSession()
+        self.use(b, sess)
+        rows = b.read_rows()
+        self.assertEqual([r["company"] for r in rows], ["a", "b"])  # header skipped
+        self.assertEqual(rows[0], {"company": "a", "role": "", "score": "", "url": "", "status": ""})
+        self.assertIn("/values/%27Jobs%27%21A%3AE", sess.calls[-1][1])
 
     def test_check_reports_header(self):
         b = self.make(sheet_tab_gid=5)

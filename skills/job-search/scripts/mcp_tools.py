@@ -5,6 +5,7 @@ import json
 import re
 
 import db
+import tracker
 from common import DATA, load_config
 from jobsearch import status_data
 from mcp_server import tool
@@ -28,6 +29,12 @@ def _str(args: dict, name: str) -> str | None:
     if v is None or isinstance(v, str):
         return v
     raise ValueError(f"{name} must be a string")
+
+
+def _added_since(row: dict, since: str) -> bool:
+    """ISO dates only: a cell Sheets reformatted (e.g. 9/2/2026) never matches rather than sorting wrongly."""
+    added = str(row.get("date_added", ""))[:10]
+    return bool(DATE_RE.fullmatch(added)) and added >= since
 
 
 @tool("status", "Data folder summary: country, enabled sources, profiles, companies, seen-jobs count, tracker "
@@ -104,3 +111,37 @@ def get_digest(args: dict) -> dict:
     if path is None or not path.exists():
         raise FileNotFoundError(f"no digest for {date or 'any run'}")
     return {"date": path.stem, "markdown": path.read_text(encoding="utf-8")}
+
+
+@tool("query_tracker", "Read the job tracker (Google Sheet or CSV), newest rows first. Read-only: it never edits the "
+      "Status column or any row. Filters combine with AND. Each row has the configured tracker columns."
+      + UNTRUSTED, {
+          "status": {"type": "string", "description": "case-insensitive match; empty string = rows with no status"},
+          "company": {"type": "string", "description": "case-insensitive substring; empty = any"},
+          "profile": {"type": "string", "description": "case-insensitive; empty = any"},
+          "min_score": {"type": "integer"},
+          "since": {"type": "string", "description": "added on/after YYYY-MM-DD (needs date_added; rows whose date "
+                                                     "is not ISO never match)"},
+          "limit": {"type": "integer", "description": "default 50, max 200"}})
+def query_tracker(args: dict) -> dict:
+    status, company, profile, since = (_str(args, k) for k in ("status", "company", "profile", "since"))
+    min_score, limit = _int(args, "min_score"), max(1, min(_int(args, "limit", 50), 200))
+    if since and not DATE_RE.fullmatch(since):
+        raise ValueError("since must be YYYY-MM-DD")
+    cfg = load_config()
+    if since and "date_added" not in tracker.columns(cfg):
+        raise ValueError("the tracker has no date_added column")
+    try:
+        rows = tracker.backend(cfg).read_rows()
+    except (tracker.Unavailable, OSError) as e:
+        raise ValueError(f"tracker unavailable: {e}")
+
+    def keep(r: dict) -> bool:
+        score = r.get("score")
+        return ((status is None or str(r.get("status", "")).strip().casefold() == status.strip().casefold())
+                and (not company or company.casefold() in str(r.get("company", "")).casefold())
+                and (not profile or str(r.get("profile", "")).casefold() == profile.casefold())
+                and (min_score is None or (isinstance(score, int) and score >= min_score))
+                and (not since or _added_since(r, since)))
+    hits = [r for r in reversed(rows) if keep(r)]
+    return {"columns": tracker.columns(cfg), "total": len(rows), "matched": len(hits), "rows": hits[:limit]}

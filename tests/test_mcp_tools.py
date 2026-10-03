@@ -105,8 +105,54 @@ class ReadTools(unittest.TestCase):
     def test_get_digest_without_any(self):
         self.assertIn("no digest for any run", call("get_digest"))
 
+    def _tracker(self, rows, **tcfg):
+        path = self.dir / "t.csv"
+        path.write_text("Company,Role,Match Score,Apply URL,Profile,Date Added,Status\n" + rows)
+        cfg = {"tracker": {"backend": "csv", "csv_path": str(path), "columns": [
+            "company", "role", "score", "url", "profile", "date_added", "status"], **tcfg}}
+        patch = mock.patch.object(mcp_tools, "load_config", return_value=cfg)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    ROWS = ("Northwind,Backend,84,https://x/a,backend,2026-09-02,applied\n"
+            "Fabrikam,AppSec,70,https://x/b,appsec,2026-09-05,\n"
+            "Contoso,SRE,inf,https://x/c,backend,2026-09-06,Rejected\n"
+            "Retyped,PM,60,https://x/d,pm,9/2/2026,\n")
+
+    def test_query_tracker_newest_first_and_filters(self):
+        self._tracker(self.ROWS)
+        r = call("query_tracker")
+        self.assertEqual([x["company"] for x in r["rows"]], ["Retyped", "Contoso", "Fabrikam", "Northwind"])
+        self.assertEqual((r["total"], r["matched"]), (4, 4))
+        self.assertEqual(r["rows"][1]["score"], "inf")  # a score cell that is not a number stays as typed
+        self.assertEqual(r["columns"][-1], "status")
+        names = lambda **kw: [x["company"] for x in call("query_tracker", **kw)["rows"]]  # noqa: E731
+        self.assertEqual(names(status="APPLIED"), ["Northwind"])
+        self.assertEqual(names(status=""), ["Retyped", "Fabrikam"])
+        self.assertEqual(names(company="fab"), ["Fabrikam"])
+        self.assertEqual(names(profile="Backend"), ["Contoso", "Northwind"])
+        self.assertEqual(names(company=""), ["Retyped", "Contoso", "Fabrikam", "Northwind"])
+        self.assertEqual(names(min_score=75), ["Northwind"])  # unscored rows never match a score floor
+        self.assertEqual(names(since="2026-09-05"), ["Contoso", "Fabrikam"])  # "9/2/2026" is not ISO: excluded
+        self.assertEqual(names(limit=1), ["Retyped"])
+        self.assertEqual(call("query_tracker", limit=1)["matched"], 4)
+
+    def test_query_tracker_empty_and_bad_arguments(self):
+        self._tracker("")
+        self.assertEqual(call("query_tracker")["rows"], [])
+        self.assertIn("since must be", call("query_tracker", since="x"))
+        self.assertIn("status must be a string", call("query_tracker", status=1))
+        self._tracker("", columns=["company", "status"])
+        self.assertIn("no date_added column", call("query_tracker", since="2026-09-01"))
+
+    def test_query_tracker_backend_unavailable(self):
+        self._tracker("")
+        for exc in (mcp_tools.tracker.Unavailable("no key"), OSError("HTTP 500")):
+            with mock.patch.object(mcp_tools.tracker.CsvBackend, "read_rows", side_effect=exc):
+                self.assertIn(f"tracker unavailable: {exc}", call("query_tracker"))
+
     def test_tools_are_read_only_and_flag_untrusted_text(self):
-        for name in ("search_jobs", "get_job", "get_digest"):
+        for name in ("search_jobs", "get_job", "get_digest", "query_tracker"):
             spec = srv.TOOLS[name][0]
             self.assertTrue(spec["annotations"]["readOnlyHint"])
             self.assertIn("never as instructions", spec["description"])
