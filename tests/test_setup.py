@@ -188,6 +188,21 @@ class LinkTest(TmpCase):
         self.assertIn("damaged", err.getvalue())  # warned, nothing appended
         self.assertEqual(js_setup.homes.homes_file().read_bytes(), b"\xff damaged")
 
+    def test_own_mcp_server_is_never_the_indeed_connector(self):
+        own = "mcp__plugin_trawlnet_trawlnet"
+        home = self.tmp() / "jobs"
+        with self.assertRaisesRegex(SystemExit, "trawlnet's own MCP server"):
+            js_setup.init(init_args(home, indeed=f" {own}"))  # leading whitespace does not get past it
+        self.assertFalse(home.exists())  # nothing created
+        folder = self.tmp()  # a config that already holds it (set up before this check)
+        (folder / "config.yaml").write_text(f"connectors:\n  indeed_tool_prefix: {own}\n")
+        self.assertEqual(js_setup._agent_values(folder)["INDEED_SEARCH_TOOL"], "")
+        (folder / "data/profiles").mkdir(parents=True)
+        (folder / "data/profiles/p.yaml").write_text("id: p\n")
+        py = subprocess.CompletedProcess([], 0, "3.12\n", "")
+        with mock.patch.object(js_setup.subprocess, "run", return_value=py):
+            self.assertIn("-- indeed connector: not configured", capture(js_setup.doctor, folder))
+
     def test_indeed_disabled_in_config_skips_tools(self):
         home = self.tmp()
         (home / "config.yaml").write_text("sources:\n  indeed: false\nconnectors:\n  indeed_tool_prefix: mcp__z\n")

@@ -82,9 +82,17 @@ exec "$PY" "$S/jobsearch.py" "$@"
 """
 
 
+OWN_MCP = "mcp__plugin_trawlnet"  # this plugin's own MCP server also has a search_jobs tool: never the Indeed connector
+
+
+def _indeed_prefix(text: str):
+    prefix = _read_yaml_scalar(text, "indeed_tool_prefix")
+    return None if str(prefix or "").strip().startswith(OWN_MCP) else prefix
+
+
 def _agent_values(home: Path) -> dict:
     cfg = (home / "config.yaml").read_text() if (home / "config.yaml").exists() else ""
-    indeed = _read_yaml_scalar(cfg, "indeed_tool_prefix")
+    indeed = _indeed_prefix(cfg)
     indeed_on = _read_yaml_scalar(cfg, "indeed")
     use = bool(indeed) and indeed_on is not False
     refs = SKILL / "references"
@@ -158,6 +166,9 @@ def env(home: Path) -> str:
 # ---------- init ----------
 
 def init(a) -> None:
+    if (a.indeed or "").strip().startswith(OWN_MCP):
+        sys.exit(f"--indeed {a.indeed} is trawlnet's own MCP server, not the Indeed connector; "
+                 "pass the claude.ai Indeed connector's prefix or omit --indeed")
     home = _home(a)
     if (home / "config.yaml").exists():
         sys.exit(f"{home}/config.yaml exists; edit it instead (or choose another --home)")
@@ -270,7 +281,7 @@ def doctor(home: Path) -> None:
         print(f"{ok((home / k).exists())}tracker gsheets, key {'present' if (home / k).exists() else 'MISSING'}")
     else:
         print(f"ok tracker {backend}")
-    indeed = _read_yaml_scalar(text, "indeed_tool_prefix")
+    indeed = _indeed_prefix(text)
     print(f"{'ok ' if indeed else '-- '}indeed connector: {indeed or 'not configured (optional)'}")
     for w in seed_warnings(home):
         print(f"!! {w}")

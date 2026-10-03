@@ -42,10 +42,11 @@ Follow `references/profiles.md`. Always get the user's review; salary floors and
 
 ### tailor <url | pasted JD>
 - LinkedIn URL → don't fetch; ask the user to paste the JD text (see `references/sources.md`).
-- Otherwise `./js fetch-url <url>` (or the `fetch_job_description` tool when the trawlnet MCP server is connected;
-  it returns the text directly, nothing is saved). If it prints `JD <path>`, pass that path; if `FALLBACK`,
+- Otherwise `./js fetch-url <url>`. If it prints `JD <path>`, pass that path; if `FALLBACK`,
   pass the URL and tell the scorer to get the JD with WebFetch (prompt: "Return the job title, company,
   location, salary, and the full responsibilities and requirements verbatim") or Indeed `get_job_details`.
+- With the trawlnet MCP server connected, `fetch_job_description` returns the text without saving it or refreshing
+  the scoring context: treat it as pasted text (next item).
 - Pasted text → save to `data/tailoring/<company-role>/jd.txt` first, then `./js context`.
 - Spawn `job-scorer`: `Mode: tailor. JD=<path or url> OUT_DIR=data/tailoring/<slug>`. Relay its summary.
 - If the user wants it tracked: the `track_job` tool, or

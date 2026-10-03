@@ -227,7 +227,8 @@ def _text(args: dict, name: str) -> str:
 
 
 @tool("fetch_job_description", "Fetch one job posting's full text from its URL (Greenhouse/Lever/Ashby API, else the "
-      "page; may use a Firecrawl credit if the page needs rendering). Nothing is saved. Use only URLs the user gave "
+      "page; may use a Firecrawl credit if the page needs rendering, counted in today's run budget). The text is "
+      "returned, not saved. Use only URLs the user gave "
       "you or that a job listing links to." + UNTRUSTED,
       {"url": {"type": "string", "description": "public http(s) job page"}}, required=["url"],
       read_only=False, openWorldHint=True)
