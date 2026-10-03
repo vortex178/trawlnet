@@ -42,12 +42,14 @@ Follow `references/profiles.md`. Always get the user's review; salary floors and
 
 ### tailor <url | pasted JD>
 - LinkedIn URL → don't fetch; ask the user to paste the JD text (see `references/sources.md`).
-- Otherwise `./js fetch-url <url>`. If it prints `JD <path>`, pass that path; if `FALLBACK`, pass the URL
-  and tell the scorer to get the JD with WebFetch (prompt: "Return the job title, company, location,
-  salary, and the full responsibilities and requirements verbatim") or Indeed `get_job_details`.
+- Otherwise `./js fetch-url <url>` (or the `fetch_job_description` tool when the trawlnet MCP server is connected;
+  it returns the text directly, nothing is saved). If it prints `JD <path>`, pass that path; if `FALLBACK`,
+  pass the URL and tell the scorer to get the JD with WebFetch (prompt: "Return the job title, company,
+  location, salary, and the full responsibilities and requirements verbatim") or Indeed `get_job_details`.
 - Pasted text → save to `data/tailoring/<company-role>/jd.txt` first, then `./js context`.
 - Spawn `job-scorer`: `Mode: tailor. JD=<path or url> OUT_DIR=data/tailoring/<slug>`. Relay its summary.
-- If the user wants it tracked: `./js track <apply url> --company ... --role ... --score N --profile id [--location ...]`
+- If the user wants it tracked: the `track_job` tool, or
+  `./js track <apply url> --company ... --role ... --score N --profile id [--location ...]`
   (values from the scorer's TRACK line).
 
 ### discover (company seed lists; occasional)
@@ -56,7 +58,8 @@ to a stale list), `./js discover custom --seed <seed>` (careers pages without a
 supported ATS), `./js discover summary`. Details and blocklist: `references/sources.md` → Discovery.
 
 ### status
-`./js status`; environment/keys/agents: `./js setup doctor`; tracker access: `./js tracker check`.
+`./js status` (MCP: `status`, `search_jobs`, `get_job`, `list_runs`, `get_digest`, `query_tracker` read the same
+data); environment/keys/agents: `./js setup doctor`; tracker access: `./js tracker check`.
 
 ### config changes
 Edit `config.yaml` (cities, freshness, shortlist size, sources, tracker) or `data/profiles/preferences.yaml`
