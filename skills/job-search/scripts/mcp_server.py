@@ -35,12 +35,13 @@ class RpcError(Exception):
         self.code = code
 
 
-def tool(name: str, description: str, properties: dict | None = None, required=(), read_only: bool = True):
-    """Register fn(args) as a tool; its return value is sent as compact JSON text."""
+def tool(name: str, description: str, properties: dict | None = None, required=(), read_only: bool = True, **hints):
+    """Register fn(args) as a tool; its return value is sent as compact JSON text. `hints` are further MCP tool
+    annotations (openWorldHint, destructiveHint, idempotentHint)."""
     def deco(fn):
         spec = {"name": name, "description": description,
                 "inputSchema": {"type": "object", "properties": properties or {}, "required": list(required)},
-                "annotations": {"readOnlyHint": read_only}}
+                "annotations": {"readOnlyHint": read_only, **hints}}
         TOOLS[name] = (spec, fn)
         return fn
     return deco
