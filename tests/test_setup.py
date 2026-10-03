@@ -25,7 +25,7 @@ def init_args(home, **kw):
     return Namespace(**{"home": str(home), "country": "IN", "cities": "delhi ncr,bengaluru", "remote_bias": "strong",
                         "timezone": None, "forbidden_shift": "00:00-06:00", "salary_floor": None,
                         "salary_floor_lpa": 26.0, "max_yoe": 5.0, "tracker": "csv", "indeed": None, "no_env": True,
-                        "cmd": "init", "dev": False, **kw})
+                        "cmd": "init", "dev": False, "preset": None, **kw})
 
 
 def capture(fn, *a, **kw):
@@ -325,6 +325,18 @@ class MainTest(TmpCase):
         with mock.patch.object(js_setup, "env", return_value="env: ok"):
             self.assertEqual(self.run_main("env", "--home", str(home)).strip(), "env: ok")
         self.assertIn("ok config.yaml", self.run_main("doctor", "--home", str(home)))
+        with contextlib.redirect_stderr(io.StringIO()):  # the unregistered-folder note
+            self.assertIn('"JOB_SEARCH_HOME"', self.run_main("desktop-config", "--home", str(home)))
+
+    def test_desktop_config_note_goes_to_stderr_not_stdout(self):
+        home = self.tmp() / "u"
+        self.run_main("init", "--home", str(home), "--country", "IN", "--cities", "delhi ncr",
+                      "--salary-floor-lpa", "26", "--max-yoe", "5", "--no-env")
+        err = io.StringIO()
+        with mock.patch.object(js_setup.homes, "is_registered", return_value=False), contextlib.redirect_stderr(err):
+            out = self.run_main("desktop-config", "--home", str(home))
+        self.assertIsInstance(json.loads(out), dict)
+        self.assertIn("is not registered yet", err.getvalue())
 
     def test_runs_as_a_script(self):
         home = self.tmp()
@@ -376,6 +388,120 @@ class SeedWarningsTest(unittest.TestCase):
         (self.home / "config.yaml").write_text("country: in\n")
         self.companies(self.boards("in", 10, 5))
         self.assertIn("!! seed 'in': 5 of 10 boards are dead", capture(js_setup.doctor, self.home))
+
+
+class FreePresetTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_preset_lowers_the_cost_settings_and_keeps_the_comments(self):
+        home = self.tmp / "free"
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            js_setup.init(init_args(home, preset="free"))
+        cfg = yaml.safe_load((home / "config.yaml").read_text())
+        self.assertEqual((cfg["shortlist_size"], cfg["scorer_batch_size"], cfg["max_age_days"]), (6, 3, 10))
+        self.assertIn("# jobs whose full description", (home / "config.yaml").read_text())
+        self.assertFalse(cfg["sources"]["indeed"] or cfg["firecrawl"]["enabled"])
+        self.assertIn("desktop-config", out.getvalue())
+        plain = self.tmp / "plain"
+        with contextlib.redirect_stdout(io.StringIO()):
+            js_setup.init(init_args(plain))
+        self.assertEqual(yaml.safe_load((plain / "config.yaml").read_text())["shortlist_size"], 15)
+
+    def test_preset_refuses_the_indeed_connector(self):
+        with self.assertRaisesRegex(SystemExit, "does not use the Indeed connector"):
+            js_setup.init(init_args(self.tmp / "x", preset="free", indeed="mcp__abc"))
+
+    def test_set_scalar_needs_an_existing_key(self):
+        self.assertEqual(js_setup._set_scalar("a: 1  # note\nb: 2\n", "a", 5), "a: 5  # note\nb: 2\n")
+        with self.assertRaises(KeyError):
+            js_setup._set_scalar("a: 1\n", "zz", 1)
+
+
+class DesktopConfigTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.home = self.tmp / "folder"
+        (self.home / "data").mkdir(parents=True)
+        (self.home / "config.yaml").write_text("")
+        self.cfg = self.tmp / "claude_desktop_config.json"
+        self.real_path = js_setup.desktop_config_path
+        patch = mock.patch.object(js_setup, "desktop_config_path", return_value=self.cfg)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_printed_entry_uses_absolute_paths_and_the_folder(self):
+        entry = json.loads(js_setup.desktop_config(self.home))["mcpServers"]["trawlnet"]
+        self.assertTrue(entry["args"][0].endswith("mcp_server.py") and os.path.isabs(entry["args"][0]))
+        self.assertEqual(entry["env"], {"JOB_SEARCH_HOME": str(self.home)})
+        self.assertEqual(entry["command"], sys.executable)  # no .venv yet
+        (self.home / ".venv/bin").mkdir(parents=True)
+        (self.home / ".venv/bin/python").write_text("")
+        self.assertEqual(js_setup.desktop_config(self.home).count(str(self.home / ".venv/bin/python")), 1)
+        self.assertFalse(self.cfg.exists())  # printing writes nothing
+
+    def test_write_merges_keeps_other_servers_and_a_backup(self):
+        self.cfg.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}, "theme": "dark"}))
+        msg = js_setup.desktop_config(self.home, write=True)
+        data = json.loads(self.cfg.read_text())
+        self.assertEqual((sorted(data["mcpServers"]), data["theme"]), (["other", "trawlnet"], "dark"))
+        self.assertIn(".bak", msg)
+        self.assertIn("other", self.cfg.with_name(self.cfg.name + ".bak").read_text())
+        js_setup.desktop_config(self.home, write=True)  # idempotent
+        self.assertEqual(json.loads(self.cfg.read_text()), data)
+
+    def test_write_creates_the_file_when_missing(self):
+        js_setup.desktop_config(self.home, write=True)
+        self.assertEqual(list(json.loads(self.cfg.read_text())["mcpServers"]), ["trawlnet"])
+        self.assertFalse(self.cfg.with_name(self.cfg.name + ".bak").exists())
+
+    def test_damaged_or_odd_files_are_left_alone(self):
+        odd = "not a Claude Desktop config"
+        for text, why in (("{not json", "cannot update"), ('{"mcpServers": []}', odd), ("[]", odd), ("null", odd)):
+            self.cfg.write_text(text)
+            with self.assertRaisesRegex(SystemExit, why):
+                js_setup.desktop_config(self.home, write=True)
+            self.assertEqual(self.cfg.read_text(), text)
+
+    def test_unregistered_folder_gets_a_note_and_a_registered_one_does_not(self):
+        self.assertIn("is not registered yet", js_setup.desktop_note(self.home))
+        self.assertIsInstance(json.loads(js_setup.desktop_config(self.home)), dict)  # pure JSON, note elsewhere
+        js_setup.homes.register(self.home)
+        self.assertEqual(js_setup.desktop_note(self.home), "")
+
+    def test_windows_venv_python_is_used(self):
+        (self.home / ".venv/Scripts").mkdir(parents=True)
+        (self.home / ".venv/Scripts/python.exe").write_text("")
+        self.assertIn("python.exe", js_setup.desktop_entry(self.home)["command"])
+
+    def test_bom_is_read_and_non_ascii_survives(self):
+        self.cfg.write_bytes(b"\xef\xbb\xbf" + json.dumps({"mcpServers": {"x": {"note": "h\u00f6me"}}}).encode())
+        js_setup.desktop_config(self.home, write=True)
+        self.assertIn("h\u00f6me".encode(), self.cfg.read_bytes())  # written as UTF-8, not escaped or locale-encoded
+
+    def test_unwritable_target_is_a_message(self):
+        self.cfg.write_text("{}")
+        with mock.patch.object(Path, "write_text", side_effect=PermissionError(13, "denied")):
+            with self.assertRaisesRegex(SystemExit, "cannot write .*denied.*without --write"):
+                js_setup.desktop_config(self.home, write=True)
+
+    def test_needs_a_data_folder(self):
+        with self.assertRaisesRegex(SystemExit, "not a data folder"):
+            js_setup.desktop_config(self.tmp)
+
+    def test_config_path_per_os(self):
+        patch = mock.patch.object(js_setup, "desktop_config_path", self.real_path)
+        patch.start()
+        self.addCleanup(patch.stop)
+        env = {"APPDATA": str(self.tmp / "roaming"), "XDG_CONFIG_HOME": str(self.tmp / "xdg")}
+        with mock.patch.dict(os.environ, env), mock.patch.object(Path, "home", return_value=self.tmp):
+            for plat, tail in (("darwin", "Library/Application Support/Claude"), ("win32", "roaming/Claude"),
+                               ("linux", "xdg/Claude")):
+                with mock.patch.object(js_setup.sys, "platform", plat):
+                    self.assertEqual(js_setup.desktop_config_path(),
+                                     self.tmp / tail / "claude_desktop_config.json", plat)
 
 
 if __name__ == "__main__":
