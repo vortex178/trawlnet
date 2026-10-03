@@ -97,6 +97,13 @@ class DescriptionTest(unittest.TestCase):
             self.assertIn("Requirements", sources.custom_description("https://x.example/j/1", b))
         self.assertEqual(b.scraped, [])
 
+    def test_public_only_reaches_the_page_fetch_alone(self):
+        with mock.patch.object(sources.net, "get", return_value=f"<p>{JD}</p>".encode()) as get:
+            sources.custom_description("https://x.example/j/1", FakeBudget())
+            self.assertEqual(get.call_args[1], {"timeout": 20})  # the pipeline's calls are unchanged
+            sources.custom_description("https://x.example/j/1", FakeBudget(), public_only=True)
+            self.assertEqual(get.call_args[1], {"timeout": 20, "public_only": True})
+
     def test_custom_description_falls_back_to_firecrawl(self):
         b = FakeBudget({"https://x.example/j/1": "# Full JD\n" + JD})
         with mock.patch.object(sources.net, "get", return_value=b"<html><nav>Home</nav></html>"):
