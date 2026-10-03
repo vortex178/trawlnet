@@ -6,8 +6,8 @@ resumes, emails, sheet ids, connector UUIDs, or real run output. Personal data l
 
 ## Layout
 - `skills/job-search/SKILL.md` — the orchestration Claude follows; `references/` loaded on demand.
-- `.mcp.json` — starts `scripts/mcp_server.py` (stdlib MCP core; `mcp_tools.py` tools, `mcp_content.py` resources and
-  prompts). New tools register with `@tool` in `mcp_tools.py`; mock the network in tests.
+- `.claude-plugin/plugin.json` (`mcpServers`) — starts `scripts/mcp_server.py` (stdlib MCP core; `mcp_tools.py` tools,
+  `mcp_content.py` resources and prompts). New tools register with `@tool` in `mcp_tools.py`; mock the network in tests.
 - `skills/job-search/scripts/` — stdlib + PyYAML engine. `common.py` (paths, config + pack merge, parsing),
   `jobsearch.py` (plan/feeds/filter/decide/shortlist/publish/…), `sources/` (one module per board; see below), `db.py` (SQLite state +
   migrations), `tracker.py` (csv/gsheets), `firecrawl.py` (credit budget), `discover.py`, `wwr_verify.py`,
