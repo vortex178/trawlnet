@@ -244,9 +244,9 @@ def fetch_job_description(args: dict) -> dict:
     return {"title": title, "company": company, "location": location, "url": canonical, "description": description}
 
 
-@tool("track_job", "Add one job to the tracker (a new row at the bottom) and mark it seen, so search_jobs and later "
-      "runs skip it. Never edits existing rows or the Status column. A job already seen is reported, not duplicated; "
-      "pass the job's real location so duplicates are recognised.", {
+@tool("track_job", "Add one job to the tracker (a new row at the bottom) and mark it seen (status "
+      "tracked), so later runs skip it. Never edits existing rows or the Status column. A job already seen is "
+      "reported, not duplicated; pass the job's real location so duplicates are recognised.", {
           "company": {"type": "string"}, "role": {"type": "string"},
           "score": {"type": "integer", "description": "match score 0-100"},
           "profile": {"type": "string", "description": "an active profile id (see status)"},

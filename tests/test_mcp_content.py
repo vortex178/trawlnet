@@ -109,13 +109,15 @@ class Prompts(unittest.TestCase):
 
     def test_tailor_names_the_job_resources_and_rules(self):
         text = self.get("tailor_for_job", key="abc123")["result"]["messages"][0]["content"]["text"]
-        for part in ("`abc123`", "get_job", "trawlnet://tailoring-rules", "trawlnet://master", "untrusted"):
+        for part in ("`abc123`", "get_job", "fetch_job_description", "trawlnet://tailoring-rules", "trawlnet://master",
+                     "untrusted"):
             self.assertIn(part, text)
 
     def test_weekly_review_uses_the_window(self):
         since = (dt.date.today() - dt.timedelta(days=14)).isoformat()
         text = self.get("weekly_review", days="14")["result"]["messages"][0]["content"]["text"]
         self.assertIn(f"since={since}", text)
+        self.assertIn("no date_added column", text)  # the default tracker columns have none: query_tracker says so
         default = self.get("weekly_review")["result"]["messages"][0]["content"]["text"]
         self.assertIn((dt.date.today() - dt.timedelta(days=7)).isoformat(), default)
 

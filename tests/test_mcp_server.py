@@ -75,6 +75,42 @@ class Framing(unittest.TestCase):
         self.assertEqual([json.loads(l)["id"] for l in lines], [1, 2])
 
 
+class Hostile(unittest.TestCase):
+    """Text from the host or from postings must never end the server."""
+
+    def test_lone_surrogates_are_escaped_on_the_wire(self):
+        out = io.StringIO()
+        srv.serve(io.StringIO('{"jsonrpc":"2.0","id":"\\ud800","method":"ping"}\n'
+                              '{"jsonrpc":"2.0","id":2,"method":"no/\\udfff"}\n'
+                              '{"jsonrpc":"2.0","id":3,"method":"ping"}\n'), out)
+        text = out.getvalue()
+        text.encode("ascii")  # a strict UTF-8 stdout could not carry a surrogate
+        self.assertEqual([json.loads(l)["id"] for l in text.splitlines()], ["\ud800", 2, 3])
+
+    def test_lone_surrogate_in_a_tool_result_is_escaped(self):
+        out = io.StringIO()
+        with mock.patch.dict(srv.TOOLS, {"t": ({}, lambda a: {"t": "\ud800 é"})}):
+            srv.serve(io.StringIO('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"t"}}\n'), out)
+        out.getvalue().encode("ascii")
+        text = json.loads(json.loads(out.getvalue())["result"]["content"][0]["text"])["t"]
+        self.assertEqual(text, "\ud800 é")
+
+    def test_environment_errors_are_tool_errors(self):
+        import sqlite3
+        import yaml
+        errors = (PermissionError(13, "Permission denied"), sqlite3.OperationalError("database is locked"),
+                  yaml.YAMLError("bad config"))
+        for exc in errors:
+            def fail(args, exc=exc):
+                raise exc
+            with mock.patch.dict(srv.TOOLS, {"x": ({}, fail)}):
+                r = rpc("tools/call", {"name": "x"})["result"]
+            self.assertTrue(r["isError"], exc)
+            self.assertIn(type(exc).__name__, r["content"][0]["text"])
+        with mock.patch.dict(sys.modules, {"yaml": None}):
+            self.assertEqual(srv._env_errors(), (OSError, sqlite3.Error))  # no PyYAML
+
+
 def _boom(args):
     raise RuntimeError("bug")
 
@@ -221,7 +257,7 @@ class Reexec(unittest.TestCase):
             srv.main()
         execv.assert_not_called()
         serve.assert_called_once()
-        i.reconfigure.assert_called_once_with(encoding="utf-8")
+        i.reconfigure.assert_called_once_with(encoding="utf-8", errors="replace")
         o.reconfigure.assert_called_once_with(encoding="utf-8")
 
     def test_reexecs_into_data_folder_venv_once(self):

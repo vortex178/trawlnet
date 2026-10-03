@@ -61,8 +61,8 @@ def tailor_for_job(args: dict) -> str:
     if not isinstance(key, str) or not KEY_RE.fullmatch(key):
         raise BadArgs("key is required (a job key from search_jobs)")
     return (f"Suggest resume tailoring for job `{key}`.\n"
-            "1. Call get_job for the posting details and score evidence; if the stored text is too thin, fetch the "
-            "full posting from its apply URL.\n"
+            "1. Call get_job for the score evidence and apply URL (it stores no posting text), then fetch the posting "
+            "with fetch_job_description on that URL; for LinkedIn, ask me to paste the text.\n"
             "2. Read the resources trawlnet://tailoring-rules, trawlnet://master and the job's profile "
             "(trawlnet://profiles/<profile id>, URL-encoded).\n"
             "3. Follow the tailoring rules exactly: every edit cites a master fact id or a quoted resume fragment, "
@@ -84,7 +84,8 @@ def weekly_review(args: dict) -> str:
     return (f"Review my job search since {since} ({days} days).\n"
             f"- list_runs: how many runs and what they fetched and scored.\n"
             f"- search_jobs with since={since}: best scores, and counts by status.\n"
-            f"- query_tracker with since={since}: rows added, and which have no status yet. Also query_tracker for "
-            "older rows still marked applied, to flag follow-ups.\n"
+            f"- query_tracker with since={since}: rows added, and which have no status yet. If it says the tracker has "
+            "no date_added column, call it without since and use the newest rows. Also query_tracker for older rows "
+            "still marked applied, to flag follow-ups.\n"
             "Then give a short summary and the 3 most useful actions for this week. Read-only: never edit the "
             "tracker.\n" + UNTRUSTED)

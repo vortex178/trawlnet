@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import sqlite3
 import sys
 import traceback
 from pathlib import Path
@@ -90,9 +91,20 @@ def _call_tool(params: dict) -> dict:
         result = TOOLS[name][1](args)
     except (ValueError, KeyError, FileNotFoundError, ImportError) as e:  # bad arguments, missing data or env
         return _tool_error(f"{type(e).__name__}: {e}")
+    except _env_errors() as e:  # unreadable file, locked or damaged database, broken YAML: the model can relay it
+        return _tool_error(f"{type(e).__name__}: {e}")
     except SystemExit as e:  # the engine exits on config problems (missing pack, bad config); the server must not
         return _tool_error(_exit_text(e))
     return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, separators=(",", ":"))}]}
+
+
+def _env_errors() -> tuple:
+    errors = (OSError, sqlite3.Error)
+    try:
+        import yaml
+    except ImportError:  # no PyYAML: nothing parses YAML either
+        return errors
+    return errors + (yaml.YAMLError,)
 
 
 def _exit_text(e: SystemExit) -> str:
@@ -193,7 +205,8 @@ def serve(stdin=None, stdout=None) -> None:
     for line in stdin:
         resp = handle(line)
         if resp is not None:
-            stdout.write(json.dumps(resp, ensure_ascii=False, separators=(",", ":")) + "\n")
+            # ASCII on the wire: a lone surrogate in an echoed id or in posting text must not kill the server
+            stdout.write(json.dumps(resp, separators=(",", ":")) + "\n")
             stdout.flush()
 
 
@@ -219,8 +232,8 @@ def main() -> None:
             os.execv(py, [py, os.path.abspath(__file__)])
         except OSError as e:  # a broken env python: serve in place (the status tool says what to fix)
             print(f"trawlnet: cannot run {py}: {e}", file=sys.stderr)
-    for stream in (sys.stdin, sys.stdout):  # MCP stdio is UTF-8 whatever the locale
-        stream.reconfigure(encoding="utf-8")
+    sys.stdin.reconfigure(encoding="utf-8", errors="replace")  # MCP stdio is UTF-8 whatever the locale; a bad input
+    sys.stdout.reconfigure(encoding="utf-8")                   # byte becomes U+FFFD instead of ending the server
     try:
         import mcp_content, mcp_tools  # noqa: F401, E401  (register everything; need PyYAML, so after re-exec)
     except ModuleNotFoundError as e:  # no env python (unregistered folder, no .venv): keep serving, say why
