@@ -679,17 +679,26 @@ def cmd_track(a, cfg):
     print(f"tracked {a.company} — {a.role}: {pushed} pushed, {pending} pending ({msg})")
 
 
-def cmd_status(a, cfg):
-    from tracker import describe
-    profiles = load_profiles()
-    companies = json.loads(COMPANIES_PATH.read_text()) if COMPANIES_PATH.exists() else []
-    print(f"data folder {HOME} | country {cfg.get('country')} ({cfg['currency']}) | max_age {cfg['max_age_days']}d | "
-          f"remote_scope {cfg.get('remote_scope')} | sources {[k for k, v in cfg['sources'].items() if v]}")
-    print(f"profiles: {', '.join(profiles) or 'none'} | companies: {len(companies)} "
-          f"({sum(bool(c.get('active', True)) for c in companies)} active) | seen: {db.seen_count()}")
-    print(describe(cfg))
+def status_data(cfg) -> dict:
+    """Config / profile / seen / tracker summary; `status` prints it, the MCP server returns it."""
     from setup import seed_warnings
-    for w in seed_warnings(HOME):
+    from tracker import describe
+    companies = json.loads(COMPANIES_PATH.read_text()) if COMPANIES_PATH.exists() else []
+    return {"data_folder": str(HOME), "country": cfg.get("country"), "currency": cfg["currency"],
+            "max_age_days": cfg["max_age_days"], "remote_scope": cfg.get("remote_scope"),
+            "sources": [k for k, v in cfg["sources"].items() if v], "profiles": list(load_profiles()),
+            "companies": len(companies), "companies_active": sum(bool(c.get("active", True)) for c in companies),
+            "seen": db.seen_count(), "tracker": describe(cfg), "warnings": seed_warnings(HOME)}
+
+
+def cmd_status(a, cfg):
+    d = status_data(cfg)
+    print(f"data folder {d['data_folder']} | country {d['country']} ({d['currency']}) | max_age {d['max_age_days']}d | "
+          f"remote_scope {d['remote_scope']} | sources {d['sources']}")
+    print(f"profiles: {', '.join(d['profiles']) or 'none'} | companies: {d['companies']} "
+          f"({d['companies_active']} active) | seen: {d['seen']}")
+    print(d["tracker"])
+    for w in d["warnings"]:
         print(f"warning: {w}")
 
 

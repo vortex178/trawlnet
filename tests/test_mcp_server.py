@@ -253,6 +253,7 @@ class Stdio(unittest.TestCase):
         self.assertEqual([r["id"] for r in replies], ["d", 0, 1])
         self.assertIn("error", replies[0])
         self.assertEqual(replies[1]["result"]["protocolVersion"], "2025-11-25")
+        self.assertIn("search_jobs", [x["name"] for x in replies[2]["result"]["tools"]])  # registered via main()
 
 
 if __name__ == "__main__":
