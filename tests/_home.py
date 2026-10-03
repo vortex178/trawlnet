@@ -1,6 +1,6 @@
 """Test setup: a throwaway data folder (copied from examples/data-folder) and the engine on sys.path.
 
-Imported first by every test module. JOB_SEARCH_HOME is always overridden so tests never touch real data.
+Imported first by every test module. JOB_SEARCH_HOME and XDG_CONFIG_HOME are always overridden so tests never touch real data.
 """
 from __future__ import annotations
 
@@ -44,4 +44,6 @@ def fixture_jsonl(name: str) -> list:
 HOME = make_home()
 atexit.register(shutil.rmtree, HOME, True)
 os.environ["JOB_SEARCH_HOME"] = str(HOME)
+os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="js-test-cfg-")  # homes.register never touches ~/.config
+atexit.register(shutil.rmtree, os.environ["XDG_CONFIG_HOME"], True)
 sys.path.insert(0, str(SCRIPTS))

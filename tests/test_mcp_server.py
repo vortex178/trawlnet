@@ -4,6 +4,7 @@ import _home  # noqa: F401  (must be first: sets JOB_SEARCH_HOME)
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,13 @@ from unittest import mock
 
 import common
 import mcp_server as srv
+import homes
+
+
+def tmpdir(case) -> str:
+    d = tempfile.mkdtemp()
+    case.addCleanup(shutil.rmtree, d, True)
+    return d
 
 
 def rpc(method, params=None, rid=1):
@@ -138,7 +146,7 @@ class Tools(unittest.TestCase):
         self.assertEqual(rpc("ping")["result"], {})
 
     def test_no_data_folder(self):
-        with mock.patch.dict(os.environ, {"JOB_SEARCH_HOME": tempfile.mkdtemp()}):
+        with mock.patch.dict(os.environ, {"JOB_SEARCH_HOME": tmpdir(self)}):
             r = rpc("tools/call", {"name": "echo", "arguments": {"x": "hi"}})["result"]
         self.assertTrue(r["isError"])
         self.assertIn("/trawlnet:setup", r["content"][0]["text"])
@@ -170,7 +178,7 @@ class ResourcesPrompts(unittest.TestCase):
         srv.RESOURCES["trawlnet://x"] = ({"uri": "trawlnet://x", "name": "x"}, lambda: sys.exit("No config.yaml"))
         self.assertEqual(rpc("resources/read", {"uri": "trawlnet://x"})["error"],
                          {"code": srv.INTERNAL_ERROR, "message": "No config.yaml"})
-        with mock.patch.dict(os.environ, {"JOB_SEARCH_HOME": tempfile.mkdtemp()}):
+        with mock.patch.dict(os.environ, {"JOB_SEARCH_HOME": tmpdir(self)}):
             for r in (rpc("resources/read", {"uri": "trawlnet://a"}), rpc("prompts/get", {"name": "p"})):
                 self.assertIn("/trawlnet:setup", r["error"]["message"])
 
@@ -185,20 +193,22 @@ class FindHome(unittest.TestCase):
             self.assertEqual(srv.find_home(), common.HOME.resolve())
 
     def test_none_without_config(self):
-        with mock.patch.dict(os.environ, {"JOB_SEARCH_HOME": tempfile.mkdtemp()}):
+        with mock.patch.dict(os.environ, {"JOB_SEARCH_HOME": tmpdir(self)}):
             self.assertIsNone(srv.find_home())
 
 
 class Reexec(unittest.TestCase):
     def setUp(self):
-        self.home = Path(tempfile.mkdtemp()).resolve()
+        self.home = Path(tmpdir(self)).resolve()
         (self.home / "config.yaml").write_text("")
         (self.home / "data").mkdir()
         patch = mock.patch.dict(os.environ, {"JOB_SEARCH_HOME": str(self.home)})
         patch.start()
         self.addCleanup(patch.stop)
 
-    def _venv(self):
+    def _venv(self, register=True):
+        if register:
+            homes.register(self.home)
         py = self.home / ".venv" / "bin" / "python"
         py.parent.mkdir(parents=True)
         py.write_text("")
@@ -223,6 +233,23 @@ class Reexec(unittest.TestCase):
             self.assertIsNone(srv._venv_python())  # marker set: never loops
         self.assertEqual(execv.call_args[0][0], str(py))
 
+    def test_unregistered_folder_venv_is_never_run(self):
+        """A cloned folder shaped like a data folder must not get its binary run at session start."""
+        self._venv(register=False)
+        with mock.patch.dict(os.environ):
+            os.environ.pop("TRAWLNET_MCP_REEXEC", None)
+            self.assertIsNone(srv._venv_python())
+
+    def test_broken_venv_python_serves_in_place(self):
+        self._venv()
+        with mock.patch.dict(os.environ), mock.patch("os.execv", side_effect=OSError(8, "Exec format error")), \
+                mock.patch.object(srv, "serve") as serve, mock.patch.object(sys, "stdin"), \
+                mock.patch.object(sys, "stdout"), mock.patch.object(sys, "stderr", io.StringIO()) as err:
+            os.environ.pop("TRAWLNET_MCP_REEXEC", None)
+            srv.main()
+        serve.assert_called_once()
+        self.assertIn("cannot run", err.getvalue())
+
     def test_already_in_venv(self):
         py = self._venv()
         with mock.patch.dict(os.environ), mock.patch.object(sys, "prefix", str(py.parents[1])):
@@ -238,6 +265,82 @@ class Reexec(unittest.TestCase):
         out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=30,
                              stdin=subprocess.DEVNULL)
         self.assertIn(f"EXEC {py}", out.stdout, out.stderr)
+
+
+class NoEngine(unittest.TestCase):
+    """A python without PyYAML (unregistered folder, no .venv, or no data folder) still serves and says why."""
+
+    def tmp(self):
+        d = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, d, True)
+        return d
+
+    def data_folder(self):
+        home = self.tmp()
+        (home / "config.yaml").write_text("")
+        (home / "data").mkdir()
+        return home
+
+    def serve(self, home, *msgs):
+        code = ("import sys; sys.modules['yaml'] = None; sys.path.insert(0, %r); import mcp_server as s; s.main()"
+                % str(Path(srv.__file__).parent))
+        env = {k: v for k, v in os.environ.items() if k != "TRAWLNET_MCP_REEXEC"}
+        env["JOB_SEARCH_HOME"] = str(home)
+        lines = "".join(json.dumps({"jsonrpc": "2.0", "id": i, "method": m, "params": p}) + "\n"
+                        for i, (m, p) in enumerate(msgs))
+        out = subprocess.run([sys.executable, "-c", code], input=lines, capture_output=True, text=True, env=env,
+                             timeout=30)
+        self.assertIn("engine not loaded", out.stderr)
+        return [json.loads(l) for l in out.stdout.splitlines()]
+
+    def test_unregistered_folder_is_told_to_link(self):
+        init, tools, call, res = self.serve(self.data_folder(), ("initialize", {}), ("tools/list", {}),
+                                            ("tools/call", {"name": "status"}), ("resources/list", {}))
+        self.assertEqual(init["result"]["serverInfo"]["name"], "trawlnet")
+        self.assertNotIn("resources", init["result"]["capabilities"])  # nothing half-loaded
+        self.assertEqual([t["name"] for t in tools["result"]["tools"]], ["status"])
+        self.assertTrue(call["result"]["isError"])
+        self.assertIn("./js setup link", call["result"]["content"][0]["text"])
+        self.assertIn(str(homes.homes_file()), call["result"]["content"][0]["text"])
+        self.assertEqual(res["result"]["resources"], [])
+
+    def test_registered_folder_without_env_is_told_to_rebuild_it(self):
+        home = self.data_folder()
+        homes.register(home)
+        (call,) = self.serve(home, ("tools/call", {"name": "status"}))
+        self.assertIn("./js setup env", call["result"]["content"][0]["text"])
+
+    def test_no_data_folder(self):
+        (call,) = self.serve(self.tmp(), ("tools/call", {"name": "status"}))
+        self.assertIn("No trawlnet data folder", call["result"]["content"][0]["text"])
+
+    def test_message_without_a_home_directory(self):
+        with mock.patch.object(homes, "homes_file", side_effect=OSError("no home")), mock.patch.dict(srv.TOOLS), \
+                mock.patch.dict(srv.RESOURCES), mock.patch.dict(srv.PROMPTS), \
+                mock.patch.object(srv, "RESOURCE_SOURCES", list(srv.RESOURCE_SOURCES)), \
+                mock.patch.dict(os.environ, {"JOB_SEARCH_HOME": str(self.data_folder())}), \
+                mock.patch.object(sys, "stderr", io.StringIO()):
+            srv._engine_missing(ModuleNotFoundError("No module named 'yaml'"))
+            text = srv._call_tool({"name": "status"})["content"][0]["text"]
+        self.assertIn("~/.config/trawlnet/homes", text)
+
+    def test_other_import_errors_still_fail(self):
+        """Only a missing module means "no env python"; a broken engine import must not hide behind the stub."""
+        real = __import__
+
+        def broken(name, *a, **kw):
+            if name == "mcp_content":
+                raise ImportError("cannot import name 'gone' from 'jobsearch'")
+            return real(name, *a, **kw)
+
+        with mock.patch("builtins.__import__", broken), mock.patch.object(srv, "serve") as serve, \
+                mock.patch.object(srv, "_venv_python", return_value=None), \
+                mock.patch.dict(srv.TOOLS, {"sentinel": None}, clear=True), \
+                mock.patch.object(sys, "stdin"), mock.patch.object(sys, "stdout"):
+            with self.assertRaises(ImportError):
+                srv.main()
+            self.assertEqual(list(srv.TOOLS), ["sentinel"])  # not cleared, no stub
+        serve.assert_not_called()
 
 
 class Stdio(unittest.TestCase):

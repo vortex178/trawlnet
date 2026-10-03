@@ -5,7 +5,8 @@
                 [--max-yoe 5] [--tracker csv|gsheets] [--indeed PREFIX] [--no-env]
       Create the folder (config.yaml, preferences, CLAUDE.md, .gitignore, data/ …), the Python env and ./js.
   setup.py link [--home DIR] [--dev]
-      Refresh ./js and the rendered agents (.claude/agents/) for this plugin version. Idempotent; run by the skill
+      Refresh ./js and the rendered agents (.claude/agents/) for this plugin version, and register the folder
+      for the MCP server. Idempotent; run by the skill
       at the start of every run. --dev also symlinks .claude/skills/job-search to this repo (no plugin install).
   setup.py env [--home DIR]      create/refresh .venv (uses uv when available) and install requirements
   setup.py doctor [--home DIR]   check python, deps, config, pack, profiles, tracker, keys, agents
@@ -23,6 +24,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import homes
 
 SCRIPTS = Path(__file__).resolve().parent
 SKILL = SCRIPTS.parent
@@ -105,6 +108,13 @@ def link(home: Path, dev: bool = False) -> list:
     if _write_if_changed(js, JS.replace("{scripts}", str(SCRIPTS))):
         changed.append("js")
     js.chmod(0o755)
+    # The folder the MCP server finds (./js passes the same folder as --home and JOB_SEARCH_HOME); never a non-data one.
+    found = homes.nearest(home, walk=not os.environ.get("JOB_SEARCH_HOME"))
+    try:
+        if found and homes.register(found):
+            changed.append(f"registered {found} for the MCP server (restart Claude Code to use it)")
+    except (OSError, ValueError) as e:  # e.g. ~/.config not writable: the run itself does not need it
+        print(f"WARN could not register the folder for the MCP server: {e}", file=sys.stderr)
     vals = _agent_values(home)
     for t in sorted((TEMPLATES / "agents").glob("*.md")):
         if _write_if_changed(home / ".claude" / "agents" / t.name, _render(t.read_text(), vals)):

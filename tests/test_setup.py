@@ -130,9 +130,11 @@ class LinkTest(TmpCase):
     def test_link_is_idempotent_and_rerenders_on_change(self):
         home = self.tmp()
         (home / "config.yaml").write_text("models: {fetcher_model: opus}\nconnectors:\n  indeed_tool_prefix: \"\"\n")
+        (home / "data").mkdir()
         changed = js_setup.link(home)
         self.assertEqual(changed[0], "js")
-        self.assertEqual(len(changed), 4)
+        self.assertIn(f"registered {home.resolve()} for the MCP server", changed[1])
+        self.assertEqual(len(changed), 5)
         agents = home / ".claude" / "agents"
         self.assertIn("model: opus", (agents / "job-fetcher.md").read_text())
         self.assertIn("Indeed connector is not configured", (agents / "job-fetcher.md").read_text())
@@ -144,6 +146,47 @@ class LinkTest(TmpCase):
         self.assertEqual(js_setup.link(home), [".claude/agents/job-fetcher.md", ".claude/agents/job-scorer.md"])
         self.assertEqual(js_setup.link(home), [])
         self.assertIn("mcp__z__search_jobs", (agents / "job-fetcher.md").read_text())
+
+    def test_registers_only_a_data_folder(self):
+        plain = self.tmp()
+        js_setup.link(plain)  # no config.yaml + data/: never listed (a later clone there must not be trusted)
+        self.assertFalse(js_setup.homes.is_registered(plain))
+        home = self.tmp()
+        (home / "config.yaml").write_text("")
+        (home / "data" / "runs").mkdir(parents=True)
+        js_setup.link(home / "data" / "runs")  # JOB_SEARCH_HOME set: like the server, no walk up
+        self.assertFalse(js_setup.homes.is_registered(home))
+        with mock.patch.dict(os.environ):
+            del os.environ["JOB_SEARCH_HOME"]
+            js_setup.link(home / "data" / "runs")  # started below the data folder: the folder itself is listed
+        self.assertTrue(js_setup.homes.is_registered(home))
+        self.assertFalse(js_setup.homes.is_registered(home / "data" / "runs"))
+
+    def test_unwritable_config_dir_warns_and_links(self):
+        home = self.tmp()
+        (home / "config.yaml").write_text("")
+        (home / "data").mkdir()
+        err = io.StringIO()
+        with mock.patch.object(js_setup.homes, "register", side_effect=PermissionError("denied")), \
+                contextlib.redirect_stderr(err):
+            changed = js_setup.link(home)
+        self.assertIn("could not register", err.getvalue())
+        self.assertEqual(len(changed), 4)  # ./js and the agents still refreshed
+
+    def test_damaged_list_warns_and_is_left_alone(self):
+        home = self.tmp()
+        (home / "config.yaml").write_text("")
+        (home / "data").mkdir()
+        patch = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.tmp())})
+        patch.start()
+        self.addCleanup(patch.stop)
+        js_setup.homes.homes_file().parent.mkdir(parents=True)
+        js_setup.homes.homes_file().write_bytes(b"\xff damaged")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            js_setup.link(home)
+        self.assertIn("damaged", err.getvalue())  # warned, nothing appended
+        self.assertEqual(js_setup.homes.homes_file().read_bytes(), b"\xff damaged")
 
     def test_indeed_disabled_in_config_skips_tools(self):
         home = self.tmp()
