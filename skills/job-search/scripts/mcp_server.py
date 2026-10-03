@@ -21,7 +21,12 @@ PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR =
 
 TOOLS: dict = {}      # name -> (spec, fn(args) -> JSON-able)
 RESOURCES: dict = {}  # uri -> (spec, fn() -> str)
+RESOURCE_SOURCES: list = []  # fn() -> {uri: (spec, fn)}, evaluated per request for data that changes (digests)
 PROMPTS: dict = {}    # name -> (spec, fn(args) -> str)
+
+
+class BadArgs(ValueError):
+    """A prompt function raises this for missing or malformed arguments (reported as invalid params)."""
 
 
 class RpcError(Exception):
@@ -41,6 +46,15 @@ def tool(name: str, description: str, properties: dict | None = None, required=(
     return deco
 
 
+def prompt(name: str, description: str, arguments: tuple = ()):
+    """Register fn(args) -> str as a prompt; `arguments` is ((name, description, required), ...)."""
+    def deco(fn):
+        PROMPTS[name] = ({"name": name, "description": description,
+                          "arguments": [{"name": n, "description": d, "required": r} for n, d, r in arguments]}, fn)
+        return fn
+    return deco
+
+
 def find_home() -> Path | None:
     """common._find_home without importing common, so it also works on a python without PyYAML."""
     env = os.environ.get("JOB_SEARCH_HOME")
@@ -54,7 +68,7 @@ def find_home() -> Path | None:
 def _initialize(params: dict) -> dict:
     asked = params.get("protocolVersion")
     caps = {"tools": {}}
-    if RESOURCES:
+    if RESOURCES or RESOURCE_SOURCES:
         caps["resources"] = {}
     if PROMPTS:
         caps["prompts"] = {}
@@ -93,12 +107,20 @@ def _tool_error(text: str) -> dict:
     return {"content": [{"type": "text", "text": text}], "isError": True}
 
 
+def _resources() -> dict:
+    found = dict(RESOURCES)
+    if find_home():
+        for source in RESOURCE_SOURCES:
+            found.update(source())
+    return found
+
+
 def _read_resource(params: dict) -> dict:
     uri = params.get("uri")
-    if uri not in RESOURCES:
-        raise RpcError(-32002, f"Resource not found: {uri}")
     _need_home()
-    spec, fn = RESOURCES[uri]
+    if uri not in (found := _resources()):
+        raise RpcError(-32002, f"Resource not found: {uri}")
+    spec, fn = found[uri]
     return {"contents": [{"uri": uri, "mimeType": spec.get("mimeType", "text/markdown"), "text": fn()}]}
 
 
@@ -111,7 +133,10 @@ def _get_prompt(params: dict) -> dict:
         raise RpcError(INVALID_PARAMS, "arguments must be an object")
     _need_home()
     spec, fn = PROMPTS[name]
-    text = fn(args)
+    try:
+        text = fn(args)
+    except BadArgs as e:
+        raise RpcError(INVALID_PARAMS, f"Bad arguments for prompt {name}: {e}")
     return {"description": spec.get("description", ""),
             "messages": [{"role": "user", "content": {"type": "text", "text": text}}]}
 
@@ -121,7 +146,7 @@ METHODS = {
     "ping": lambda p: {},
     "tools/list": lambda p: {"tools": [s for s, _ in TOOLS.values()]},
     "tools/call": _call_tool,
-    "resources/list": lambda p: {"resources": [s for s, _ in RESOURCES.values()]},
+    "resources/list": lambda p: {"resources": [s for s, _ in _resources().values()]},
     "resources/read": _read_resource,
     "prompts/list": lambda p: {"prompts": [s for s, _ in PROMPTS.values()]},
     "prompts/get": _get_prompt,
@@ -189,7 +214,7 @@ def main() -> None:
         os.execv(py, [py, os.path.abspath(__file__)])
     for stream in (sys.stdin, sys.stdout):  # MCP stdio is UTF-8 whatever the locale
         stream.reconfigure(encoding="utf-8")
-    import mcp_tools  # noqa: F401  (registers the tools; needs PyYAML, so only after the re-exec)
+    import mcp_content, mcp_tools  # noqa: F401, E401  (register tools, resources, prompts; need PyYAML: after re-exec)
     serve()
 
 
