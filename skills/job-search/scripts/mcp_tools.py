@@ -1,22 +1,29 @@
 """MCP tools: reads over the data folder's state (jobs.db, digests, tracker), plus fetch_job_description and
-track_job, which reach outward, and save_profile, which writes profiles. Importing this module registers them."""
+track_job, which reach outward, save_profile, which writes profiles, and run_feeds/run_status, which start and
+follow a background search (runner.py). Importing this module registers them."""
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
+import gzip
 import http.client
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
+import zlib
 
 import yaml
 
 import db
 import homes
 import mcp_content  # noqa: F401  (registers the prompts get_instructions serves)
+import runner
 import tracker
 import urlguard
-from common import DATA, HOME, PROFILES_DIR, SKILL_DIR, load_config, load_profiles, norm, served
+from common import DATA, HOME, PROFILES_DIR, RUNS_DIR, SKILL_DIR, load_config, load_profiles, norm, served, today
 from jobsearch import SENIORITY, fetch_job, status_data, track_job
 from mcp_server import PROMPTS, tool
 
@@ -471,3 +478,152 @@ def get_instructions(args: dict) -> dict:
     if task not in WORKFLOWS:
         raise ValueError(f"unknown task {task!r}; one of: {', '.join([*WORKFLOWS, *DOCS])}")
     return {"task": task, "text": PROMPTS[task][1]({k: v for k, v in args.items() if k != "task"})}
+
+
+STARTING_GRACE = 60  # seconds a just-spawned runner may take to take its lock
+LOG_TAIL, LOG_BYTES, MAX_ROWS, MAX_LINE = 20, 65536, 100_000, 1 << 20  # a planted run folder must not exhaust
+#                                                                         the server
+_children: list = []  # runners this server spawned, reaped by run_status so none stays a zombie
+
+
+def _plain(path, label: str):
+    """served(), and nothing but a regular file (or nothing) at the path: opening a planted FIFO would block."""
+    path = served(path, label)
+    if path.exists() and not path.is_file():
+        raise ValueError(f"{label} is not a regular file")
+    return path
+
+
+def _alive(d, prog: dict) -> bool:
+    _plain(d / "run.lock", f"data/runs/{d.name}/run.lock")  # the probe opens it: a clone could link it anywhere
+    if runner.running(d):
+        return True
+    if prog.get("state") != "starting":
+        return False
+    try:
+        age = (dt.datetime.now() - dt.datetime.fromisoformat(prog.get("updated", ""))).total_seconds()
+    except (TypeError, ValueError):
+        return False
+    return 0 <= age < STARTING_GRACE
+
+
+def _progress(d) -> dict:
+    try:
+        with open(_plain(d / "progress.json", "progress.json"), encoding="utf-8") as f:
+            text = f.read(LOG_BYTES + 1)
+        prog = json.loads(text) if len(text) <= LOG_BYTES else None
+    except (OSError, ValueError, RecursionError):  # RecursionError: deeply nested JSON
+        return {}
+    return prog if isinstance(prog, dict) else {}
+
+
+def _field(v, cap: int = 80):
+    """A progress.json value as shown: a short string, an int, or a short list of strings (the file may be planted)."""
+    if isinstance(v, str):
+        return v[:cap]
+    if isinstance(v, int) and not isinstance(v, bool):
+        return v
+    if isinstance(v, list):
+        return [x[:cap] for x in v[:len(runner.STEPS)] if isinstance(x, str)]
+    return None
+
+
+def _rows(d, name: str):
+    """A run file's JSON objects, streamed (plain or gzipped after publish) with rows and line lengths capped;
+    lines that are not JSON objects are skipped, as read_jsonl does."""
+    path = _plain(d / f"{name}.jsonl", f"{name}.jsonl")
+    gz = _plain(d / f"{name}.jsonl.gz", f"{name}.jsonl.gz")
+    if not path.exists() and not gz.exists():
+        return
+    src = path if path.exists() else gz
+    try:
+        with (open(path, encoding="utf-8") if src is path else gzip.open(gz, "rt", encoding="utf-8")) as f:
+            for i, line in enumerate(iter(lambda: f.readline(MAX_LINE), "")):
+                if i >= MAX_ROWS or (len(line) >= MAX_LINE and not line.endswith("\n")):
+                    raise ValueError(f"{name}.jsonl has more than {MAX_ROWS} rows or a row over {MAX_LINE} bytes")
+                try:
+                    row = json.loads(line)
+                except (ValueError, RecursionError):
+                    continue
+                if isinstance(row, dict):
+                    yield row
+    except (EOFError, gzip.BadGzipFile, zlib.error) as e:  # a truncated or damaged archive
+        raise ValueError(f"{name}.jsonl.gz is damaged: {e}")
+    except OSError as e:  # e.g. no read permission; strerror leaves out the absolute path
+        raise ValueError(f"{src.name} cannot be read: {e.strerror}")
+
+
+def _log_tail(d) -> list:
+    try:
+        with open(_plain(d / "run.log", "run.log"), "rb") as f:
+            f.seek(max(0, f.seek(0, os.SEEK_END) - LOG_BYTES))
+            lines = f.read().decode("utf-8", errors="replace").splitlines()
+    except (OSError, ValueError):
+        return []
+    return [line[:MAX_TEXT] for line in lines[-LOG_TAIL:]]
+
+
+@tool("run_feeds", "Start today's job search in the background: fetch the enabled sources, filter by the user's "
+      "rules, and shortlist the best matches with their descriptions. It returns at once; the run takes a few "
+      "minutes, so call run_status about once a minute until its state is done (or failed).", {},
+      read_only=False, destructiveHint=False, idempotentHint=False, openWorldHint=True)
+def run_feeds(args: dict) -> dict:
+    _registered()
+    if not load_profiles():
+        raise ValueError("no active profile yet: build one first (get_instructions with task=build_profile)")
+    date = today()
+    d = RUNS_DIR / date
+    for name in ("progress.json", "run.log", "run.lock"):  # a clone could link them out of the folder
+        _plain(d / name, f"data/runs/{date}/{name}")
+    d.mkdir(parents=True, exist_ok=True)
+    for other in sorted(p for p in RUNS_DIR.iterdir() if DATE_RE.fullmatch(p.name)):  # one run at a time: runs
+        if _alive(other, _progress(other)):  # of different days share companies.json and the Firecrawl ledger
+            raise ValueError(f"the {other.name} run is still going; call run_status")
+    if any(d.glob("scores-*.jsonl")):
+        raise ValueError(f"the {date} shortlist is already being scored; finish it, and run again tomorrow")
+    runner.write_progress(d, state="starting", done=[], started=runner.now())
+    detach = ({"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
+              if os.name == "nt" else {"start_new_session": True})  # outlives a closed chat; no console window
+    env = {**os.environ, "JOB_SEARCH_HOME": str(HOME), "PYTHONIOENCODING": "utf-8"}  # run.log is UTF-8 everywhere
+    try:
+        with open(d / "run.log", "w", encoding="utf-8") as log:  # the server's stdout carries the MCP protocol
+            _children.append(subprocess.Popen([sys.executable, str(runner.__file__), str(d)], stdin=subprocess.DEVNULL,
+                                              stdout=log, stderr=log, cwd=str(HOME), env=env, **detach))
+    except OSError as e:
+        runner.write_progress(d, state="failed", step="start", error=f"{type(e).__name__}: {e}", done=[])
+        raise
+    return {"date": date, "state": "starting", "next": "call run_status in about a minute"}
+
+
+@tool("run_status", "State of the background search run_feeds started: starting, running (with the current step), "
+      "done (with shortlist counts), failed or stopped (with the end of its log). Defaults to the newest run; "
+      "date is YYYY-MM-DD." + UNTRUSTED, {"date": {"type": "string"}})
+def run_status(args: dict) -> dict:
+    _children[:] = [p for p in _children if p.poll() is None]
+    date = _str(args, "date")
+    if date is None:
+        dated = [p.parent.name for p in RUNS_DIR.glob("*/progress.json") if DATE_RE.fullmatch(p.parent.name)]
+        if not dated:
+            raise ValueError("no search started from here yet; start one with run_feeds")
+        date = max(dated)
+    if not DATE_RE.fullmatch(date):
+        raise ValueError("date must be YYYY-MM-DD")
+    d = RUNS_DIR / date
+    prog = _progress(d)
+    if not prog:
+        raise ValueError(f"no search started from here on {date}; start one with run_feeds")
+    out = {"date": date, "state": _field(prog.get("state")),
+           **{k: _field(prog[k]) for k in ("step", "done", "exit_code", "started", "finished") if k in prog}}
+    if "error" in prog:
+        out["error"] = _field(prog["error"], MAX_TEXT)
+    if prog.get("state") in ("starting", "running") and not _alive(d, prog):
+        out["state"] = "stopped"  # e.g. the computer slept or restarted mid-run
+        out["next"] = "start it again with run_feeds"
+    if out["state"] == "done":
+        out["counts"] = {name: sum(1 for _ in _rows(d, name)) for name in ("accepted", "ambiguous", "rejected")}
+        short = [str(r.get("jd") or "") for r in _rows(d, "shortlist")]
+        out["counts"].update(shortlisted=len(short), with_description=sum(1 for jd in short
+                                                                         if jd and not jd.startswith("indeed:")))
+    elif out["state"] in ("failed", "stopped"):
+        out["log_tail"] = _log_tail(d)
+    return out
