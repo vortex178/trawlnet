@@ -116,22 +116,24 @@ def weekly_review(args: dict) -> str:
         "publish the matches to the tracker. Safe to run again after an interruption.")
 def run_job_search(args: dict) -> str:
     return ("Run my job search for today with the trawlnet tools.\n"
-            "1. Call run_status. If it says no search started (or the newest run is an earlier day, or it is stopped or "
-            "failed), call run_feeds (for a failed one, show me the log tail first); if it says no active profile, stop "
-            "and offer build_profile (get_instructions with task=build_profile). If a search is running or just "
-            "started, keep checking as in step 2.\n"
-            "2. Call run_status about once a minute, telling me the step each time, until the state is done. If it "
-            "fails, show me the log tail and stop.\n"
-            "3. Call next_batch (n=3). Score each job as the returned rubric says, against its best profile, using only "
+            "1. Call run_status. If it is done and unfinished is true, finish that run first: go to step 3 (next_batch "
+            "picks it, even from an earlier day). If a search is starting or running, go to step 2. Otherwise (no "
+            "search started, or it is finished, stopped or failed) call run_feeds; for a failed one, show me the log "
+            "tail first. If run_feeds says no active profile, stop and offer build_profile (get_instructions with "
+            "task=build_profile); if it says an earlier run has scores not in the tracker, do step 3 with date= that "
+            "run's date in next_batch and submit_scores; if it says today's search is published, tell me and stop.\n"
+            "2. Call run_status with wait=30 (it returns when the step changes), telling me the step each time, until "
+            "the state is done. If it fails or stops, show me the log tail and stop.\n"
+            "3. Call next_batch. Score each job as the returned rubric says, against its best profile, using only "
             "the job text and my profile and resume evidence (strengths cite it; say 'not evidenced' rather than "
             "guessing). Then call submit_scores with one result per job. If it returns errors, fix those results and "
             "resend only them.\n"
-            "4. Repeat step 3 with context=false (the rubric and profiles are already here) until remaining is 0; "
-            "submit_scores then publishes. State is saved after every batch, so if I stop, the same prompt resumes. "
-            "If a new chat starts mid-run, the first next_batch sends the rubric again.\n"
+            "4. Repeat step 3 with context=false (the rubric and profiles are already here; keep any date=) until "
+            "remaining is 0; submit_scores then publishes. State is saved after every batch, so if I stop, the same "
+            "prompt resumes. If a new chat starts mid-run, the first next_batch sends the rubric again.\n"
             "5. Finish with the published summary: the best matches (score, company, role, gaps in one line), how many "
-            "went to the tracker, and any leads without a description. Never edit tracker rows or statuses: those are "
-            "mine.\n" + UNTRUSTED)
+            "went to the tracker, and any leads without a description. If that run was from an earlier day, go back "
+            "to step 1 for today's search. Never edit tracker rows or statuses: those are mine.\n" + UNTRUSTED)
 
 
 @prompt("build_profile", "Turn my resume into a role profile and master facts, review them with me, then save them.",

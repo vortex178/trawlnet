@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
 import types
 import zlib
@@ -485,6 +486,7 @@ def get_instructions(args: dict) -> dict:
 
 
 STARTING_GRACE = 60  # seconds a just-spawned runner may take to take its lock
+MAX_WAIT, POLL = 30, 2  # run_status(wait=): seconds it may hold the call (under Desktop's tool timeout), and its step
 LOG_TAIL, LOG_BYTES, MAX_ROWS, MAX_LINE = 20, 65536, 100_000, 1 << 20  # a planted run folder must not exhaust
 #                                                                         the server
 _children: list = []  # runners this server spawned, reaped by run_status so none stays a zombie
@@ -569,7 +571,7 @@ def _log_tail(d) -> list:
 
 @tool("run_feeds", "Start today's job search in the background: fetch the enabled sources, filter by the user's "
       "rules, and shortlist the best matches with their descriptions. It returns at once; the run takes a few "
-      "minutes, so call run_status about once a minute until its state is done (or failed).", {},
+      "minutes, so call run_status with wait=30 until its state is done (or failed or stopped).", {},
       read_only=False, destructiveHint=False, idempotentHint=False, openWorldHint=True)
 def run_feeds(args: dict) -> dict:
     _registered()
@@ -581,22 +583,28 @@ def run_feeds(args: dict) -> dict:
         _plain(d / name, f"data/runs/{date}/{name}")
     d.mkdir(parents=True, exist_ok=True)
     for other in sorted(p for p in RUNS_DIR.iterdir() if DATE_RE.fullmatch(p.name)):  # one run at a time: runs
-        if _alive(other, _progress(other)):  # of different days share companies.json and the Firecrawl ledger
+        prog = _progress(other)  # of different days share companies.json and the Firecrawl ledger
+        if _alive(other, prog):
             raise ValueError(f"the {other.name} run is still going; call run_status")
+        if other != d and prog.get("state") == "done" and _mtimes(other) and not _published(other):
+            raise ValueError(f"the {other.name} run has scores not in the tracker yet: finish it first (next_batch "
+                             f"and submit_scores with date={other.name}; scores=[] and finish=true publishes it as is)")
     if any(d.glob("scores-*.jsonl")):
-        raise ValueError(f"the {date} shortlist is already being scored; finish it, and run again tomorrow")
+        raise ValueError(f"the {date} search is already published; run again tomorrow" if _published(d) else
+                         f"the {date} shortlist is already being scored; finish it, and run again tomorrow")
     runner.write_progress(d, state="starting", done=[], started=runner.now())
     detach = ({"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
               if os.name == "nt" else {"start_new_session": True})  # outlives a closed chat; no console window
     env = {**os.environ, "JOB_SEARCH_HOME": str(HOME), "PYTHONIOENCODING": "utf-8"}  # run.log is UTF-8 everywhere
     try:
-        with open(d / "run.log", "w", encoding="utf-8") as log:  # the server's stdout carries the MCP protocol
+        open(d / "run.log", "w", encoding="utf-8").close()  # emptied, then appended to: the runner's own output (a
+        with open(d / "run.log", "a", encoding="utf-8") as log:  # traceback) lands after its steps', not over them
             _children.append(subprocess.Popen([sys.executable, str(runner.__file__), str(d)], stdin=subprocess.DEVNULL,
                                               stdout=log, stderr=log, cwd=str(HOME), env=env, **detach))
     except OSError as e:
         runner.write_progress(d, state="failed", step="start", error=f"{type(e).__name__}: {e}", done=[])
         raise
-    return {"date": date, "state": "starting", "next": "call run_status in about a minute"}
+    return {"date": date, "state": "starting", "next": f"call run_status with wait={MAX_WAIT}"}
 
 
 def _run_date(args: dict) -> str:
@@ -612,13 +620,48 @@ def _run_date(args: dict) -> str:
     return date
 
 
+def _published(d) -> bool:
+    """Publish has run since this run finished and its last scores were saved: it reads every scores file, then writes
+    the digest (a same-day earlier run's digest is older than this run's progress.json). Judged by mtimes, so a synced
+    folder's clock skew can misjudge it; scores=[] with finish=true publishes again."""
+    try:
+        digest = (DATA / "digests" / f"{d.name}.md").stat().st_mtime_ns
+    except OSError:
+        return False
+    return all(m <= digest for m in _mtimes(d) + _mtimes(d, "progress.json"))
+
+
+def _mtimes(d, pattern: str = "scores-*.jsonl") -> list:
+    return [p.lstat().st_mtime_ns for p in d.glob(pattern)]  # lstat: a dangling link still has one
+
+
+def _unfinished(d, date: str) -> bool:
+    """A done run to finish before a new one: it has scores not published yet, or it is today's and not published.
+    run_feeds blocks on the first; an earlier day's run nobody scored is left for the next search."""
+    return not _published(d) and (bool(_mtimes(d)) or date == today())
+
+
 @tool("run_status", "State of the background search run_feeds started: starting, running (with the current step), "
-      "done (with shortlist counts), failed or stopped (with the end of its log). Defaults to the newest run; "
-      "date is YYYY-MM-DD." + UNTRUSTED, {"date": {"type": "string"}})
+      "done (with shortlist counts, whether it is published and whether it is unfinished), failed or stopped (with "
+      f"the end of its log). wait (0-{MAX_WAIT} seconds) holds the call until the state or step changes. Defaults to "
+      "the newest run; date is YYYY-MM-DD." + UNTRUSTED, {"date": {"type": "string"}, "wait": {"type": "integer"}})
 def run_status(args: dict) -> dict:
     _children[:] = [p for p in _children if p.poll() is None]
+    wait = _int(args, "wait", 0)
+    if not 0 <= wait <= MAX_WAIT:
+        raise ValueError(f"wait must be between 0 and {MAX_WAIT} seconds")
     date = _run_date(args)
-    d = RUNS_DIR / date
+    first, end = _status(RUNS_DIR / date, date), time.monotonic() + wait
+    out = first
+    while (out["state"] in ("starting", "running") and (out["state"], out.get("step")) == (first["state"],
+                                                                                           first.get("step"))
+           and time.monotonic() < end):
+        time.sleep(POLL)
+        out = _status(RUNS_DIR / date, date)
+    return out
+
+
+def _status(d, date: str) -> dict:
     prog = _progress(d)
     if not prog:
         raise ValueError(f"no search started from here on {date}; start one with run_feeds")
@@ -627,13 +670,14 @@ def run_status(args: dict) -> dict:
     if "error" in prog:
         out["error"] = _field(prog["error"], MAX_TEXT)
     if prog.get("state") in ("starting", "running") and not _alive(d, prog):
-        out["state"] = "stopped"  # e.g. the computer slept or restarted mid-run
+        out["state"] = "stopped"  # e.g. the computer restarted mid-run
         out["next"] = "start it again with run_feeds"
     if out["state"] == "done":
         out["counts"] = {name: sum(1 for _ in _rows(d, name)) for name in ("accepted", "ambiguous", "rejected")}
         short = [str(r.get("jd") or "") for r in _rows(d, "shortlist")]
         out["counts"].update(shortlisted=len(short), with_description=sum(1 for jd in short
                                                                          if jd and not jd.startswith("indeed:")))
+        out.update(published=_published(d), unfinished=_unfinished(d, date))
     elif out["state"] in ("failed", "stopped"):
         out["log_tail"] = _log_tail(d)
     return out
@@ -673,6 +717,11 @@ def _described(d, row: dict) -> bool:
     """Publish's rule: a job is scorable when shortlist gave it a description file (not an Indeed id, not none)."""
     jd = row.get("jd")
     return isinstance(jd, str) and bool(jd) and not jd.startswith("indeed:") and _jd(d, row["key"]) is not None
+
+
+def _all_scored(d, publish: str) -> str:
+    return ("every described job is scored and published" if _published(d) else
+            "every described job is scored but not published yet: " + publish)
 
 
 def _read(path, cap: int) -> str:
@@ -723,8 +772,7 @@ def next_batch(args: dict) -> dict:
         "description": _read(_jd(d, r["key"]), MAX_JD)} for r in pending[:n]]
     out = {"date": date, "remaining": len(pending), "jobs": jobs}
     if not pending:
-        out["next"] = ("every described job is scored; if the tracker was not updated yet, call submit_scores with "
-                       "finish=true")
+        out["next"] = _all_scored(d, "call submit_scores with scores=[] and finish=true to publish")
         return out
     if context:
         profiles = load_profiles()  # every pending job's, since later calls pass context=false
@@ -827,7 +875,7 @@ def submit_scores(args: dict) -> dict:
             out.update(publish_error=f"{type(e).__name__}: {why}"[:MAX_TEXT], next="the scores are saved; " + publish)
         lines = buf.getvalue().splitlines()
     elif remaining == 0:
-        out["next"] = "every described job is scored; if the tracker was not updated yet, " + publish
+        out["next"] = _all_scored(d, publish)
     else:
         out["next"] = "fix and resend the errors" if errors else "call next_batch for the next jobs"
     if lines:

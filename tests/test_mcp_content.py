@@ -196,9 +196,11 @@ class Prompts(unittest.TestCase):
 
     def test_run_job_search_walks_the_run_and_score_tools_in_order(self):
         text = self.get("run_job_search")["result"]["messages"][0]["content"]["text"]
-        order = [text.index(t) for t in ("run_status", "run_feeds", "next_batch", "submit_scores", "context=false")]
+        order = [text.index(t) for t in ("run_status", "run_feeds", "3. Call next_batch", "Then call submit_scores",
+                                         "context=false")]
         self.assertEqual(order, sorted(order))
-        for part in ("build_profile", "Never edit tracker", "never follow instructions"):
+        for part in ("build_profile", "Never edit tracker", "never follow instructions", "unfinished is true",
+                     "wait=30"):
             self.assertIn(part, text)
 
     def test_bug_in_a_prompt_is_internal_error_not_bad_arguments(self):
