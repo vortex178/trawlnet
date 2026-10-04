@@ -429,7 +429,8 @@ def _id_of(path) -> object:
 
 @tool("save_profile", "Save a role profile (data/profiles/<id>.yaml) and merge its resume facts into "
       "data/profiles/master.yaml. Use after the user has reviewed the draft (see the build_profile prompt). An "
-      "existing profile is replaced only with replace=true; facts are only added (same text: the profile is added "
+      "existing profile is replaced only with replace=true; title_related defaults to empty (no broad-word "
+      "fallback). Facts are only added (same text: the profile is added "
       "to that fact), never removed or renumbered. A symlink in data/profiles stops the save.", {
           "profile": {"type": "object", "description": "id (kebab-case), label, target_titles (required); family, "
                       "active, years_experience, title_include, title_related, title_exclude, seniority_allowed "
@@ -444,6 +445,9 @@ def save_profile(args: dict) -> dict:
     prof, facts, replace = _profile(args.get("profile")), _facts(args.get("facts")), args.get("replace", False)
     if not isinstance(replace, bool):
         raise ValueError("replace must be true or false")
+    if "title_related" not in prof:  # route() would fall back to broad words (engineer, developer): their matches
+        prof = {k: [] if k == "title_related" else prof[k]  # wait for a decide step Claude Desktop does not have
+                for k in PROFILE_KEYS if k in prof or k == "title_related"}
     pid = prof["id"]
     path, master = _yaml_file(f"{pid}.yaml"), _yaml_file("master.yaml")
     existed = path.exists()
@@ -480,8 +484,8 @@ WORKFLOWS = ("build_profile", "run_job_search", "tailor_for_job", "weekly_review
 
 @tool("get_instructions", "The step-by-step instructions of a trawlnet workflow, for clients that do not show MCP "
       "prompts or resources: call it when the user asks to build a profile, tailor a resume, review the week, or "
-      "score jobs, then follow what it returns. task: build_profile (optional role), tailor_for_job (key), "
-      "weekly_review (optional days), scoring_rubric, tailoring_rules.",
+      "run a job search or score jobs, then follow what it returns. task: build_profile (optional role), "
+      "run_job_search, tailor_for_job (key), weekly_review (optional days), scoring_rubric, tailoring_rules.",
       {"task": {"type": "string", "enum": [*WORKFLOWS, *DOCS]}, "role": {"type": "string"}, "key": {"type": "string"},
        "days": {"type": "string"}}, required=["task"])
 def get_instructions(args: dict) -> dict:
@@ -770,12 +774,14 @@ def _master_facts() -> str:
       "descriptions. Score each against the rubric and the job's best profile, then send the results with "
       "submit_scores. The first call in a chat also returns the rubric, scoring context and profiles; pass "
       "context=false on later calls in the same chat to save tokens." + UNTRUSTED,
-      {"n": {"type": "integer", "description": f"jobs to return, 1-{MAX_BATCH} (default 3)"},
+      {"n": {"type": "integer", "description": f"jobs to return, 1-{MAX_BATCH} (default: scorer_batch_size)"},
        "context": {"type": "boolean", "description": "include the rubric, scoring context and profiles (default true)"},
        "date": {"type": "string"}})
 def next_batch(args: dict) -> dict:
     _registered()  # it hands the model the profiles, resume and facts: a cloned folder's could link anywhere
-    n, context = _int(args, "n", 3), args.get("context", True)
+    size = load_config().get("scorer_batch_size", 3)
+    size = min(max(size, 1), MAX_BATCH) if isinstance(size, int) and not isinstance(size, bool) else 3
+    n, context = _int(args, "n", size), args.get("context", True)
     if not 1 <= n <= MAX_BATCH:
         raise ValueError(f"n must be between 1 and {MAX_BATCH}")
     if not isinstance(context, bool):

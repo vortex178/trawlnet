@@ -245,11 +245,13 @@ def init(a) -> None:
     if not a.no_env:
         print(env(home))
     print("linked:", ", ".join(link(home)) or "nothing to change")
-    print("next: add a profile per resume (profile add), then `./js setup doctor`")
     if a.preset:
-        print(f"preset {a.preset}: shortlist and batch sizes are small; "
-              f"connect Claude Desktop with `python3 {shlex.quote(str(SCRIPTS / 'setup.py'))} desktop-config "
-              f"--home {shlex.quote(str(home))}`")
+        print(f"preset {a.preset}: shortlist and batch sizes are small. next: connect Claude Desktop with "
+              f"`python3 {shlex.quote(str(SCRIPTS / 'setup.py'))} desktop-config --home {shlex.quote(str(home))} "
+              "--write`, quit and reopen Claude Desktop, then ask it to build your profile from your resume "
+              "(the build_profile prompt)")
+    else:
+        print("next: add a profile per resume (profile add), then `./js setup doctor`")
 
 
 # ---------- desktop-config ----------
@@ -267,8 +269,11 @@ def desktop_entry(home: Path) -> dict:
     """The mcpServers entry that starts this server on `home` (absolute paths: Desktop has no shell PATH or cwd)."""
     py = next((p for p in (home / ".venv" / "bin" / "python", home / ".venv" / "Scripts" / "python.exe")
                if p.exists()), Path(sys.executable))
-    return {"command": str(py),
-            "args": [str(SCRIPTS / "mcp_server.py")], "env": {"JOB_SEARCH_HOME": str(home)}}
+    env = {"JOB_SEARCH_HOME": str(home)}
+    xdg = os.environ.get("XDG_CONFIG_HOME", "")
+    if os.path.isabs(xdg):  # Desktop starts servers without the shell's env: the registration list lives there
+        env["XDG_CONFIG_HOME"] = xdg
+    return {"command": str(py), "args": [str(SCRIPTS / "mcp_server.py")], "env": env}
 
 
 def desktop_note(home: Path) -> str:
@@ -276,7 +281,7 @@ def desktop_note(home: Path) -> str:
     if homes.is_registered(home):
         return ""
     return (f"note: {home} is not registered yet; run `python3 {shlex.quote(str(SCRIPTS / 'setup.py'))} link --home "
-            f"{shlex.quote(str(home))}` or query_tracker, fetch_job_description and track_job will refuse")
+            f"{shlex.quote(str(home))}` or the profile, search, scoring and tracker tools will refuse")
 
 
 def desktop_config(home: Path, write: bool = False) -> str:
@@ -352,7 +357,8 @@ def doctor(home: Path) -> None:
     cc = (_read_yaml_scalar(text, "country") or "?").lower()
     print(f"{ok((PLUGIN / 'packs' / f'{cc}.yaml').exists() or (home / 'packs' / f'{cc}.yaml').exists())}pack {cc}")
     profiles = [p.stem for p in (home / "data/profiles").glob("*.yaml") if p.stem not in ("master", "preferences")]
-    print(f"{ok(bool(profiles))}profiles: {', '.join(profiles) or 'none (profile add <resume>)'}")
+    none = "none (profile add <resume>, or build_profile in Claude Desktop)"
+    print(f"{ok(bool(profiles))}profiles: {', '.join(profiles) or none}")
     print(f"{ok((home / 'data/profiles/preferences.yaml').exists())}preferences.yaml")
     for name, key, path in (("firecrawl", "firecrawl", ".secrets/firecrawl.key"),
                             ("adzuna", "adzuna", ".secrets/adzuna.json")):

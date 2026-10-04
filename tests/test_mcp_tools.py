@@ -419,8 +419,11 @@ class SaveProfile(unittest.TestCase):
         self.assertEqual(out, {"saved": "data/profiles/backend-eng.yaml", "replaced": False, "facts_added": 2,
                                "facts_total": 2})
         prof = self.load("backend-eng.yaml")
-        self.assertEqual(list(prof), ["id", "label", "years_experience", "target_titles", "seniority_allowed",
-                                      "core_skills", "summary"])
+        self.assertEqual(list(prof), ["id", "label", "years_experience", "target_titles", "title_related",
+                                      "seniority_allowed", "core_skills", "summary"])
+        self.assertEqual(prof["title_related"], [])  # not route()'s broad default
+        self.save(dict(self.PROF, title_related=["SRE"]), replace=True)
+        self.assertEqual(self.load("backend-eng.yaml")["title_related"], ["SRE"])
         self.assertEqual(prof["seniority_allowed"], ["mid", "senior"])
         self.assertEqual(self.load("master.yaml")["facts"][0], {"id": "F001", "resumes": ["backend-eng"],
                          "kind": "experience", "org": "Acme", "text": "Built Kafka ingestion.", "skills": ["kafka"]})
