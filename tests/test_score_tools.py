@@ -84,6 +84,16 @@ class ScoreTools(unittest.TestCase):
         call("submit_scores", scores=[], finish=True)
         self.assertIn("scored and published", call("next_batch")["next"])
 
+    def test_the_default_batch_is_the_configured_size(self):
+        rows = [{"key": f"wwr:{i}", "profiles": ["be"], "jd": "x"} for i in range(1, 8)]
+        (self.d / "shortlist.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        for i in range(1, 8):
+            (self.d / "jd" / f"wwr:{i}.txt").write_text("Go", encoding="utf-8")
+        for size, n in ((None, 3), (2, 2), (12, mcp_tools.MAX_BATCH), (0, 1), (True, 3), ("x", 3)):
+            cfg = {} if size is None else {"scorer_batch_size": size}
+            with mock.patch.object(mcp_tools, "load_config", return_value=cfg):
+                self.assertEqual(len(call("next_batch", context=False)["jobs"]), n, cfg)
+
     def test_scores_are_saved_then_the_run_is_published(self):
         out = call("submit_scores", scores=[result("wwr:1", gaps=["Kubernetes — not evidenced"]),
                                             result("wwr:2", apply_url="https://jobs.example.com/2")])

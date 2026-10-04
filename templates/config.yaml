@@ -28,7 +28,7 @@ exclude_contract: false           # drop contract / freelance / temporary roles 
 retention_days_raw: 7            # raw fetch files + Firecrawl page cache kept this long (gzipped after publish)
 
 shortlist_size: 15               # jobs whose full description gets read and scored per run (~100k tokens)
-scorer_batch_size: 12            # jobs per scorer agent; scorers run one after another
+scorer_batch_size: 12            # jobs per scorer agent (Claude Desktop: per next_batch, at most 5)
 min_score_for_tracker: 60        # only matches at/above this go to the tracker
 stale_after_days: 7              # older postings keep their slot but lose score at publish (not rejected)
 stale_penalty_per_day: 1

@@ -22,10 +22,11 @@ resume for <job key>" (`tailor_for_job`), "review my week" (`weekly_review`).
 
 ## What the free preset changes
 `init --preset free` writes smaller numbers to `config.yaml`: `shortlist_size: 6`, `scorer_batch_size: 3`,
-`max_age_days: 10`. Edit them there (more jobs per run means more tokens). Indeed, Adzuna, undocumented ATS endpoints,
+`max_age_days: 10`. Edit them there (more jobs per run means more tokens); `next_batch` sends `scorer_batch_size`
+jobs at a time, at most 5 (a folder made without the preset has 12, so 5). Indeed, Adzuna, undocumented ATS endpoints,
 Alignerr and Firecrawl are off by default; We Work Remotely, Remote OK and Hacker News are on. Company ATS boards are
 fetched only for companies in `data/companies.json`, which `init` does not create: build it once from a terminal with
-`<data folder>/js discover run` (free, no tokens; see the README's step 5 of "Set up"), otherwise a run uses the three
+`<data folder>/js discover run` (free, no tokens), otherwise a run uses the three
 feeds. Google Sheets needs a service account: the CSV tracker is the default.
 
 ## Files
@@ -50,5 +51,8 @@ feeds. Google Sheets needs a service account: the CSV tracker is the default.
 - macOS is the tested system. The `init` step builds the folder's `.venv` with POSIX paths, so Windows is not supported
   yet, and Claude Desktop has no official Linux build.
 - Free plans cap messages per few hours. A first run (6 jobs) is about 2 batches; leave room for the profile build.
+- Titles that fit a profile only loosely (`ambiguous` in `run_status`) are not scored: Claude Code's decide step has no
+  Desktop counterpart. Keep `title_related` empty (`save_profile` defaults it to empty) and list clear titles in
+  `title_include`.
 - Job text is untrusted: Claude is told never to follow instructions inside a posting.
 - trawlnet never applies to jobs, logs in to sites, or handles passwords.

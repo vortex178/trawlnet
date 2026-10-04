@@ -416,6 +416,8 @@ class FreePresetTest(unittest.TestCase):
         self.assertIn("# jobs whose full description", (home / "config.yaml").read_text())
         self.assertFalse(cfg["sources"]["indeed"] or cfg["firecrawl"]["enabled"])
         self.assertIn("desktop-config", out.getvalue())
+        self.assertIn("--write", out.getvalue())
+        self.assertNotIn("profile add", out.getvalue())  # a Claude Code step
         plain = self.tmp / "plain"
         with contextlib.redirect_stdout(io.StringIO()):
             js_setup.init(init_args(plain))
@@ -447,7 +449,10 @@ class DesktopConfigTest(unittest.TestCase):
     def test_printed_entry_uses_absolute_paths_and_the_folder(self):
         entry = json.loads(js_setup.desktop_config(self.home))["mcpServers"]["trawlnet"]
         self.assertTrue(entry["args"][0].endswith("mcp_server.py") and os.path.isabs(entry["args"][0]))
-        self.assertEqual(entry["env"], {"JOB_SEARCH_HOME": str(self.home)})
+        self.assertEqual(entry["env"], {"JOB_SEARCH_HOME": str(self.home),
+                                        "XDG_CONFIG_HOME": os.environ["XDG_CONFIG_HOME"]})
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": "relative"}):
+            self.assertEqual(js_setup.desktop_entry(self.home)["env"], {"JOB_SEARCH_HOME": str(self.home)})
         self.assertEqual(entry["command"], sys.executable)  # no .venv yet
         (self.home / ".venv/bin").mkdir(parents=True)
         (self.home / ".venv/bin/python").write_text("")
