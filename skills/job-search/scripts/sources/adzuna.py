@@ -19,7 +19,7 @@ def fetch_adzuna(cfg: dict) -> list:
     key_path = confined(cfg.get("adzuna_key_file"), ".secrets/adzuna.json", "adzuna_key_file")
     if not key_path.exists():
         raise RuntimeError(f"no key at {key_path.name}")
-    k = json.loads(key_path.read_text())
+    k = json.loads(key_path.read_text(encoding="utf-8"))
     terms = [s.lower() for s in cfg.get("adzuna_searches") or []]
     for p in ([] if terms else load_profiles().values()):
         for q in p.get("search_queries") or p["target_titles"][:2]:

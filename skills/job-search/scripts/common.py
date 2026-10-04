@@ -98,7 +98,7 @@ def load_pack(country: str) -> dict:
     for d in (HOME / "packs", PACKS_DIR):
         p = d / f"{cc}.yaml"
         if p.exists():
-            return yaml.safe_load(p.read_text())
+            return yaml.safe_load(p.read_text(encoding="utf-8"))
     sys.exit(f"No country pack '{cc}.yaml' in {PACKS_DIR}. Available: "
              + ", ".join(sorted(x.stem for x in PACKS_DIR.glob('*.yaml'))))
 
@@ -107,7 +107,7 @@ def load_config() -> dict:
     path = HOME / "config.yaml"
     if not path.exists():
         sys.exit(f"No config.yaml in {HOME}. Run setup (see the job-search skill) or set JOB_SEARCH_HOME.")
-    cfg = yaml.safe_load(path.read_text()) or {}
+    cfg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     pack = load_pack(cfg.get("country", "IN"))
     pack.update(cfg.get("pack_overrides") or {})
     cfg["pack"] = pack
@@ -125,11 +125,11 @@ def save_config_value(dotted_key: str, value) -> None:
     """Update one scalar in config.yaml in place, preserving comments."""
     path = HOME / "config.yaml"
     key = dotted_key.split(".")[-1]
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     new, n = re.subn(rf"(?m)^(\s*{re.escape(key)}:)\s*[^#\n]*", rf"\g<1> {json.dumps(value)} ", text, count=1)
     if n != 1:
         raise KeyError(dotted_key)
-    path.write_text(new)
+    path.write_text(new, encoding="utf-8")
 
 
 def load_profiles() -> dict:
@@ -138,7 +138,7 @@ def load_profiles() -> dict:
     for p in sorted(PROFILES_DIR.glob("*.yaml")):
         if p.stem in ("master", "preferences"):
             continue
-        prof = yaml.safe_load(p.read_text()) or {}
+        prof = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         if prof.get("active", True):
             out[prof["id"]] = prof
     return out
@@ -146,7 +146,7 @@ def load_profiles() -> dict:
 
 def load_preferences() -> dict:
     p = PROFILES_DIR / "preferences.yaml"
-    return (yaml.safe_load(p.read_text()) or {}) if p.exists() else {}
+    return (yaml.safe_load(p.read_text(encoding="utf-8")) or {}) if p.exists() else {}
 
 
 def salary_floor(prefs: dict, profile_id: str, currency: str):
@@ -179,7 +179,7 @@ def read_jsonl(path: Path) -> list:
         import gzip
         text = gzip.decompress(gz.read_bytes()).decode()
     else:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
     out = []
     for i, line in enumerate(text.split("\n"), 1):  # not splitlines(): JDs contain U+2028/2029
         line = line.strip()
@@ -193,11 +193,11 @@ def read_jsonl(path: Path) -> list:
 
 
 def write_jsonl(path: Path, rows) -> None:
-    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
 
 
 def append_jsonl(path: Path, rows) -> None:
-    with path.open("a") as f:
+    with path.open("a", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 

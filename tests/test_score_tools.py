@@ -89,7 +89,7 @@ class ScoreTools(unittest.TestCase):
                                                                                 ["2026-10-04"]))
         saved = self.scores()
         self.assertEqual([s["key"] for s in saved], ["wwr:1", "wwr:2", "wwr:3"])
-        self.assertTrue((self.d / "scores-chat-1.jsonl").read_bytes().isascii())  # publish reads the locale's codec
+        self.assertTrue((self.d / "scores-chat-1.jsonl").read_bytes().isascii())
         self.assertEqual(saved[0]["gaps"], ["Kubernetes — not evidenced"])
         self.assertEqual((saved[0]["apply_url"], saved[1]["apply_url"]), ("https://example.com/1",
                                                                           "https://jobs.example.com/2"))

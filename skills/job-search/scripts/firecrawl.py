@@ -30,14 +30,15 @@ class Budget:
         self.min_interval = float(fc.get("min_seconds_between_requests", 6))  # free plan: ~10 req/min
         self.country = cfg.get("country", "IN")  # scrape as a visitor from this country (geo-targeted career pages)
         self._last = 0.0
-        state = json.loads(self.ledger.read_text()) if self.ledger.exists() else {}
+        state = json.loads(self.ledger.read_text(encoding="utf-8")) if self.ledger.exists() else {}
         self.spent = state.get("spent", 0)
         self.start_remaining = state.get("start_remaining")
         self.allowance = state.get("allowance")
         self.note = state.get("note", "")
         self.key_path = (confined(fc.get("api_key_file"), ".secrets/firecrawl.key", "firecrawl.api_key_file")
                          if self.enabled else None)  # a disabled Firecrawl never reads (or checks) the file
-        self.key = self.key_path.read_text().strip() if self.key_path and self.key_path.exists() else None
+        has_key = self.key_path and self.key_path.exists()
+        self.key = self.key_path.read_text(encoding="utf-8").strip() if has_key else None
         if self.enabled and not self.key:
             self.enabled, self.note = False, f"no API key at {rel(self.key_path)}"
         if self.enabled and self.allowance is None:
@@ -72,7 +73,7 @@ class Budget:
 
     def _save(self):
         self.ledger.write_text(json.dumps({"spent": self.spent, "allowance": self.allowance, "note": self.note,
-                                           "start_remaining": self.start_remaining}))
+                                           "start_remaining": self.start_remaining}), encoding="utf-8")
 
     def reconcile(self):
         """Replace the local estimate with the real spend from the account balance."""
@@ -95,7 +96,7 @@ class Budget:
         """1 credit. Returns main-content markdown, or None if over budget/failed."""
         cached = self.cache / (hashlib.sha1(url.encode()).hexdigest()[:16] + ".md")
         if cached.exists():  # same-day re-runs never pay twice
-            return cached.read_text()
+            return cached.read_text(encoding="utf-8")
         if self.left() < 1:
             return None
         for attempt in (1, 2):
@@ -124,7 +125,7 @@ class Budget:
         self._save()
         md = (d.get("data") or {}).get("markdown") or ""
         self.cache.mkdir(exist_ok=True)
-        cached.write_text(f"<!-- {url} -->\n{md}")
+        cached.write_text(f"<!-- {url} -->\n{md}", encoding="utf-8")
         return md
 
     def summary(self) -> str:

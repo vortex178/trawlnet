@@ -97,7 +97,7 @@ def _blocked(seed=None):
     out = set()
     for p in (SEEDS_DIR / "blocklist.json", SEEDS / "blocklist.json"):
         if p.exists():
-            out |= {(b["ats"], b["token"].lower()) for b in json.loads(p.read_text())
+            out |= {(b["ats"], b["token"].lower()) for b in json.loads(p.read_text(encoding="utf-8"))
                     if not b.get("seeds") or seed in b["seeds"]}
     return out
 
@@ -227,7 +227,7 @@ def resolve(c: dict, cfg: dict):
 
 
 def load_companies() -> list:
-    return json.loads(COMPANIES_PATH.read_text()) if COMPANIES_PATH.exists() else []
+    return json.loads(COMPANIES_PATH.read_text(encoding="utf-8")) if COMPANIES_PATH.exists() else []
 
 
 def merge(new: list) -> tuple:
@@ -249,7 +249,7 @@ def merge(new: list) -> tuple:
             idx[k] = e
             added += 1
     cur.sort(key=lambda c: (not c.get("active"), c["name"].lower()))
-    COMPANIES_PATH.write_text(json.dumps(cur, indent=1, ensure_ascii=False) + "\n")
+    COMPANIES_PATH.write_text(json.dumps(cur, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     return added, updated
 
 
@@ -258,17 +258,17 @@ def load_seed(seed: str) -> list:
     for d in (SEEDS, SEEDS_DIR):
         y, j = d / f"{seed}.yaml", d / f"{seed}.json"
         if y.exists():
-            rows = yaml.safe_load(y.read_text()) or {}
+            rows = yaml.safe_load(y.read_text(encoding="utf-8")) or {}
             return [{"name": n, "domain": dom, "tags": [tag], "seed": seed} for tag, xs in rows.items() for n, dom in xs]
         if j.exists():
-            return json.loads(j.read_text())
+            return json.loads(j.read_text(encoding="utf-8"))
     sys.exit(f"seed '{seed}' not found in {rel(SEEDS)} or {SEEDS_DIR}")
 
 
 def cmd_import_remoteintech(repo: str):
     out = []
     for f in sorted(glob.glob(f"{repo}/src/companies/*.md")):
-        m = re.match(r"---\n(.*?)\n---", open(f).read(), re.S)
+        m = re.match(r"---\n(.*?)\n---", open(f, encoding="utf-8").read(), re.S)
         try:
             fm = yaml.safe_load(m.group(1)) if m else None
         except yaml.YAMLError:
@@ -280,7 +280,7 @@ def cmd_import_remoteintech(repo: str):
                     "careers_url": fm.get("careers_url") or "", "seed": "remoteintech",
                     "tags": ["remoteintech", f"region:{fm.get('region')}", f"policy:{fm.get('remote_policy')}"]})
     SEEDS.mkdir(parents=True, exist_ok=True)
-    (SEEDS / "remoteintech.json").write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
+    (SEEDS / "remoteintech.json").write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"remoteintech seed: {len(out)} companies (regions worldwide/asia-pacific/other)")
 
 
@@ -298,7 +298,8 @@ def cmd_run(seed: str, limit):
     found = [e for _, e in results if e]
     unresolved = [c for c, e in results if not e]
     added, updated = merge(found)
-    (SEEDS / f"unresolved-{seed}.json").write_text(json.dumps(unresolved, indent=1, ensure_ascii=False) + "\n")
+    (SEEDS / f"unresolved-{seed}.json").write_text(json.dumps(unresolved, indent=1, ensure_ascii=False) + "\n",
+                                                   encoding="utf-8")
     by = Counter(e["ats"] for e in found)
     act = [e for e in found if e["active"]]
     print(f"{seed}: {len(cands)} candidates, {len(cands) - len(todo)} already known | resolved {len(found)} "
@@ -308,7 +309,7 @@ def cmd_run(seed: str, limit):
 
 def cmd_verify(path: str):
     cfg = load_config()
-    rows = [json.loads(l) for l in open(path) if l.strip()]
+    rows = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()]
     ok, bad = [], []
     global BLOCKED
     for r in rows:
@@ -350,7 +351,7 @@ def cmd_custom(seed: str):
     """Add unresolved companies of a seed as `custom` entries (free fetch, Firecrawl fallback in rotation)."""
     from sources import fetch_custom_free
     seed = SEED_ALIASES.get(seed, seed)
-    un = json.loads((SEEDS / f"unresolved-{seed}.json").read_text())
+    un = json.loads((SEEDS / f"unresolved-{seed}.json").read_text(encoding="utf-8"))
     known = {norm_company(c["name"]) for c in load_companies()}
     todo = [c for c in un if norm_company(c["name"]) not in known]
     with ThreadPoolExecutor(max_workers=12) as ex:
@@ -395,7 +396,7 @@ def cmd_refresh(seed: str):
         record_outcome(c)
         if not pinned:
             c["active"] = r["relevant_jobs"] > 0
-    COMPANIES_PATH.write_text(json.dumps(cur, indent=1, ensure_ascii=False) + "\n")
+    COMPANIES_PATH.write_text(json.dumps(cur, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"{seed} refresh: {len(mine)} boards checked | ok {len(mine) - down} | unreachable {down} "
           f"| retired (dead {DEAD_AFTER}+ days) {retired}")
     cmd_run(seed, None)
@@ -421,7 +422,7 @@ def _yaml_seed(seed: str):
 def cmd_topup_prepare(seed: str):
     """Print what the model needs to propose new companies: the seed's groups and the names already listed."""
     src = _yaml_seed(seed)
-    rows = yaml.safe_load(src.read_text()) or {}
+    rows = yaml.safe_load(src.read_text(encoding="utf-8")) or {}
     known = sorted({n for xs in rows.values() for n, _ in xs} | {c["name"] for c in load_companies()})
     out = SEEDS / f"topup-{seed}.jsonl"
     print(f"topup {seed}: {sum(len(v) for v in rows.values())} companies in groups "
@@ -433,12 +434,12 @@ def cmd_topup_prepare(seed: str):
 def cmd_topup_import(seed: str, path: str):
     """Add proposed companies to the user's copy of a YAML seed: duplicates and dead domains are dropped (free)."""
     src = _yaml_seed(seed)
-    text = src.read_text()
+    text = src.read_text(encoding="utf-8")
     groups = list(yaml.safe_load(text) or {})
     known = {norm_company(n) for xs in (yaml.safe_load(text) or {}).values() for n, _ in xs}
     known |= {norm_company(c["name"]) for c in load_companies()}
     lines, added, dup, bad = text.splitlines(), [], 0, []
-    for raw in Path(path).read_text().splitlines():
+    for raw in Path(path).read_text(encoding="utf-8").splitlines():
         if not raw.strip():
             continue
         try:
@@ -472,7 +473,7 @@ def cmd_topup_import(seed: str, path: str):
         added.append(name)
     dest = SEEDS / f"{seed}.yaml"
     SEEDS.mkdir(parents=True, exist_ok=True)
-    dest.write_text("\n".join(lines) + "\n")
+    dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"topup {seed}: +{len(added)} added, {dup} already listed, {len(bad)} rejected (bad line/domain: "
           f"{', '.join(bad[:8]) or '-'}) -> {rel(dest)} (your copy now overrides the plugin's {seed}.yaml)"
           + (f"\nnext: ./js discover run --seed {seed}" if added else ""))

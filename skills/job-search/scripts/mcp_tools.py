@@ -400,7 +400,7 @@ def _write_yaml(path, data) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(yaml.safe_dump(data, sort_keys=False))  # ASCII escapes: load_profiles reads in the locale encoding
+            f.write(yaml.safe_dump(data, sort_keys=False))
         os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
@@ -810,7 +810,7 @@ def submit_scores(args: dict) -> dict:
         taken = [int(m.group(1)) for p in d.glob("scores-chat-*.jsonl")
                  if (m := re.fullmatch(r"scores-chat-(\d+)\.jsonl", p.name))]  # never a scorer subagent's scores-N
         path = _plain(d / f"scores-chat-{max(taken, default=0) + 1}.jsonl", "scores file")
-        with open(path, "x", encoding="utf-8") as f:  # ASCII JSON: publish reads it with the locale's codec
+        with open(path, "x", encoding="utf-8") as f:
             f.writelines(json.dumps(r) + "\n" for r in rows)
     remaining = len(pending) - len(rows)
     out = {"date": date, "saved": len(rows), "remaining": remaining, "errors": errors}
