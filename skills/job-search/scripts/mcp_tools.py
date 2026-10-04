@@ -84,6 +84,10 @@ def _added_since(row: dict, since: str) -> bool:
 @tool("status", "Data folder summary: country, enabled sources, profiles, companies, seen-jobs count, tracker "
       "backend, queued rows and seed warnings.")
 def status(args: dict) -> dict:
+    # a cloned folder's config, profiles and companies.json are untrusted (no config.yaml: load_config says so)
+    if (HOME / "config.yaml").exists() and not homes.is_registered(HOME):
+        return {"data_folder": str(HOME), "registered": False, "next": "register it: run `./js setup link` (or "
+                "`setup.py link --home <folder>`) and restart Claude Code or Claude Desktop"}
     return status_data(load_config(), read_only=True)
 
 
@@ -368,7 +372,8 @@ def _merge_facts(doc: dict, new: list, pid: str) -> int:
     facts = doc["facts"]
     by_text = {f["text"]: f for f in facts if isinstance(f, dict) and isinstance(f.get("text"), str)
                and f.get("retired") is not True}
-    used = [int(m[1]) for f in facts if isinstance(f, dict) and (m := re.fullmatch(r"F([0-9]+)", str(f.get("id"))))]
+    used = [int(m[1]) for f in facts if isinstance(f, dict) and isinstance(f.get("id"), str)  # not str(): a nested
+            and (m := re.fullmatch(r"F([0-9]+)", f["id"]))]  # alias (a YAML bomb) would expand
     nxt, added = max(used, default=0) + 1, 0
     for fact in new:
         old = by_text.get(fact["text"])
@@ -401,7 +406,10 @@ def _write_yaml(path, data) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(yaml.safe_dump(data, sort_keys=False))
+            text = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+            if "\x85" in text:  # raw, it reads back as a space (the one code point that does not round-trip)
+                text = yaml.safe_dump(data, sort_keys=False)
+            f.write(text)
         os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
@@ -487,8 +495,8 @@ def get_instructions(args: dict) -> dict:
 
 STARTING_GRACE = 60  # seconds a just-spawned runner may take to take its lock
 MAX_WAIT, POLL = 30, 2  # run_status(wait=): seconds it may hold the call (under Desktop's tool timeout), and its step
-LOG_TAIL, LOG_BYTES, MAX_ROWS, MAX_LINE = 20, 65536, 100_000, 1 << 20  # a planted run folder must not exhaust
-#                                                                         the server
+# a planted run folder must not exhaust the server: log, rows, line and whole-file (after any gzip) caps
+LOG_TAIL, LOG_BYTES, MAX_ROWS, MAX_LINE, MAX_FILE = 20, 65536, 100_000, 1 << 20, 64 << 20
 _children: list = []  # runners this server spawned, reaped by run_status so none stays a zombie
 
 
@@ -544,9 +552,12 @@ def _rows(d, name: str):
     src = path if path.exists() else gz
     try:
         with (open(path, encoding="utf-8") if src is path else gzip.open(gz, "rt", encoding="utf-8")) as f:
+            size = 0
             for i, line in enumerate(iter(lambda: f.readline(MAX_LINE), "")):
-                if i >= MAX_ROWS or (len(line) >= MAX_LINE and not line.endswith("\n")):
-                    raise ValueError(f"{name}.jsonl has more than {MAX_ROWS} rows or a row over {MAX_LINE} bytes")
+                size += len(line)
+                if i >= MAX_ROWS or size > MAX_FILE or (len(line) >= MAX_LINE and not line.endswith("\n")):
+                    raise ValueError(f"{name}.jsonl has more than {MAX_ROWS} rows, over {MAX_FILE >> 20}M characters or "
+                                     f"a row over {MAX_LINE} bytes")
                 try:
                     row = json.loads(line)
                 except (ValueError, RecursionError):
@@ -745,11 +756,13 @@ def _master_facts() -> str:
         return ""
     try:
         doc = yaml.safe_load(_read(master, 1 << 20))
-    except (yaml.YAMLError, RecursionError):
+    except (yaml.YAMLError, RecursionError, ValueError):  # ValueError: an int over Python's digit limit
         return ""
     facts = doc.get("facts") if isinstance(doc, dict) else None
-    lines = [f"{f.get('id')}: {f.get('text')}" for f in (facts if isinstance(facts, list) else [])
-             if isinstance(f, dict) and f.get("retired") is not True]
+    # scalars only: str() of a nested alias (a YAML bomb) would expand it
+    lines = [f"{f['id']}: {f['text']}" for f in (facts if isinstance(facts, list) else [])
+             if isinstance(f, dict) and isinstance(f.get("id"), str) and isinstance(f.get("text"), str)
+             and f.get("retired") is not True]
     return "\n".join(lines)[:MAX_EVIDENCE]
 
 
@@ -761,6 +774,7 @@ def _master_facts() -> str:
        "context": {"type": "boolean", "description": "include the rubric, scoring context and profiles (default true)"},
        "date": {"type": "string"}})
 def next_batch(args: dict) -> dict:
+    _registered()  # it hands the model the profiles, resume and facts: a cloned folder's could link anywhere
     n, context = _int(args, "n", 3), args.get("context", True)
     if not 1 <= n <= MAX_BATCH:
         raise ValueError(f"n must be between 1 and {MAX_BATCH}")

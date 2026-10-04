@@ -150,6 +150,7 @@ class ScoreTools(unittest.TestCase):
         self.assertIn("has not finished", call("next_batch"))
         with mock.patch.object(mcp_tools, "HOME", Path(tempfile.mkdtemp()) / "clone"):
             self.assertIn("not registered", call("submit_scores", scores=[result("wwr:1")]))
+            self.assertIn("not registered", call("next_batch"))
         self.assertEqual(self.scores(), [])
 
     def test_a_key_never_names_a_file_outside_jd(self):
@@ -166,10 +167,14 @@ class ScoreTools(unittest.TestCase):
         self.assertEqual(mcp_tools._master_facts(), "")
         (data / "profiles").mkdir()
         master = data / "profiles" / "master.yaml"
-        master.write_text("facts:\n- {id: F001, text: Built Go APIs}\n- {id: F002, text: Old, retired: true}\n- x\n",
-                          encoding="utf-8")
+        master.write_text("facts:\n- {id: F001, text: Built Go APIs}\n- {id: F002, text: Old, retired: true}\n- x\n"
+                          "- {id: F003}\n- {id: [F004], text: t}\n- {id: 5, text: t}\n", encoding="utf-8")
         self.assertEqual(mcp_tools._master_facts(), "F001: Built Go APIs")
-        for text in ("[1, 2]", "facts: {a: 1}", "a: [", "[" * 100000):
+        bomb = "a: &a [x, x, x, x, x, x, x, x, x, x]\n" + "".join(
+            f"{c}: &{c} [*{p}, *{p}, *{p}, *{p}, *{p}, *{p}, *{p}, *{p}, *{p}, *{p}]\n" for p, c in zip("abcdefgh", "bcdefghi"))
+        master.write_text(bomb + "facts:\n- {id: *i, text: *i}\n- {id: F1, text: *i}\n", encoding="utf-8")
+        self.assertEqual(mcp_tools._master_facts(), "")  # 10^9 strings if expanded
+        for text in ("[1, 2]", "facts: {a: 1}", "a: [", "[" * 100000, "a: " + "9" * 5000):
             master.write_text(text, encoding="utf-8")
             self.assertEqual(mcp_tools._master_facts(), "", text[:10])
         (data / "resumes").mkdir()
