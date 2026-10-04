@@ -139,7 +139,7 @@ class ScoringAdjustTest(unittest.TestCase):
         s = {"score": 70}
         _adjust_score(s, {"company": "Foundit (Monster India)", "posted": None}, self.cfg)
         self.assertEqual(s["score"], 70)
-        s = {"score": 70}
+        s = {"score": 70, "flags": None}  # a scorer may send null
         _adjust_score(s, {"company": "Foundit", "posted": None}, self.cfg)
         self.assertTrue(any("aggregator" in f for f in s["flags"]))
 
