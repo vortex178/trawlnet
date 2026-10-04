@@ -112,6 +112,7 @@ class Resources(unittest.TestCase):
         self.assertIn("F0", self.read("trawlnet://master")["result"]["contents"][0]["text"])
         rules = self.read("trawlnet://tailoring-rules")["result"]["contents"][0]["text"]
         self.assertIn("Never create new experience", rules)
+        self.assertIn("Calibration", self.read("trawlnet://scoring-rubric")["result"]["contents"][0]["text"])
 
     def test_scoring_context_and_digests_appear_when_present(self):
         self.make("scoring-context.md", "# ctx")
@@ -182,6 +183,16 @@ class Prompts(unittest.TestCase):
             self.assertEqual(r["error"]["code"], srv.INVALID_PARAMS, r)
         for ok in (7, "7", " 30 ", None, ""):
             self.assertIn("since", self.get("weekly_review", days=ok)["result"]["messages"][0]["content"]["text"])
+
+    def test_build_profile_names_the_role_and_the_save_steps(self):
+        text = self.get("build_profile", role=" backend engineer ")["result"]["messages"][0]["content"]["text"]
+        for part in ("for the role: backend engineer.", "save_profile", "replace=true", "Never guess salary", "status"):
+            self.assertIn(part, text)
+        for empty in (None, "", "  "):
+            self.assertIn("from my resume.\n", self.get("build_profile", role=empty)["result"]["messages"][0]
+                          ["content"]["text"])
+        for bad in ("a\nb", "a\u2028b", "x" * 81, "a`b", 5, ["x"]):
+            self.assertEqual(self.get("build_profile", role=bad)["error"]["code"], srv.INVALID_PARAMS, bad)
 
     def test_bug_in_a_prompt_is_internal_error_not_bad_arguments(self):
         srv.PROMPTS["buggy"] = ({"name": "buggy"}, lambda a: {}["missing"])
