@@ -457,20 +457,31 @@ def cmd_shortlist(a, cfg):
 
 
 def _valid_score(s: dict, short: dict, profiles: dict) -> str:
-    if s.get("key") not in short:
+    """Why publish must refuse a scores line ("" when it can use it): a scorer's output is checked, not trusted."""
+    if not isinstance(s, dict):
+        return "not an object"
+    if not isinstance(s.get("key"), str) or s["key"] not in short:
         return "unknown key"
-    if s.get("profile") not in profiles:
+    if not isinstance(s.get("profile"), str) or s["profile"] not in profiles:
         return "unknown profile"
-    if not isinstance(s.get("score"), int) or not 0 <= s["score"] <= 100:
+    if not isinstance(s.get("score"), int) or isinstance(s["score"], bool) or not 0 <= s["score"] <= 100:
         return "bad score"
     if s.get("verdict") not in ("apply", "consider", "skip"):
         return "bad verdict"
+    if not isinstance(s.get("gates") or {}, dict):
+        return "bad gates"
+    for k in ("strengths", "gaps", "flags"):
+        v = s.get(k) or []
+        if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+            return f"bad {k}"
+    if s.get("apply_url") is not None and not isinstance(s["apply_url"], str):
+        return "bad apply_url"
     return ""
 
 
 def _adjust_score(s: dict, job: dict, cfg: dict) -> None:
     """Deterministic post-scoring tweaks: stale-posting penalty, aggregator-repost flag."""
-    flags = s.setdefault("flags", [])
+    flags = s["flags"] = s.get("flags") or []  # a scorer may send null
     age, after = age_days(job.get("posted")), cfg.get("stale_after_days", 7)
     if age is not None and age > after:
         pen = min(cfg.get("stale_penalty_max", 10), (age - after) * cfg.get("stale_penalty_per_day", 1))
@@ -491,7 +502,7 @@ def cmd_publish(a, cfg):
         for s in read_jsonl(f):
             err = _valid_score(s, short, profiles)
             if err:
-                bad.append(f"{s.get('key')}: {err}")
+                bad.append(f"{s.get('key') if isinstance(s, dict) else None}: {err}")
             elif "vague-jd" in (s.get("flags") or []):
                 if short[s["key"]]["source"] != "indeed":  # no usable description: surface as a lead, don't retry
                     leads.append(short[s["key"]])

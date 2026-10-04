@@ -202,8 +202,13 @@ class ScoreValidationTest(unittest.TestCase):
         self.assertEqual(jobsearch._valid_score(ok, short, profiles), "")
         for patch, err in [({"key": "x"}, "unknown key"), ({"profile": "zzz"}, "unknown profile"),
                            ({"score": 101}, "bad score"), ({"score": "70"}, "bad score"),
-                           ({"score": -1}, "bad score"), ({"verdict": "maybe"}, "bad verdict")]:
+                           ({"score": -1}, "bad score"), ({"verdict": "maybe"}, "bad verdict"),
+                           ({"key": ["k"]}, "unknown key"), ({"profile": {}}, "unknown profile"),
+                           ({"gates": ["pass"]}, "bad gates"), ({"strengths": "x"}, "bad strengths"),
+                           ({"gaps": [1]}, "bad gaps"), ({"flags": 5}, "bad flags"), ({"score": True}, "bad score"),
+                           ({"apply_url": ["u"]}, "bad apply_url")]:
             self.assertEqual(jobsearch._valid_score({**ok, **patch}, short, profiles), err)
+        self.assertEqual(jobsearch._valid_score(["k"], short, profiles), "not an object")
 
 
 class PublishEdgeCasesTest(unittest.TestCase):
