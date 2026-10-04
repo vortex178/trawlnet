@@ -11,7 +11,8 @@ resumes, emails, sheet ids, connector UUIDs, or real run output. Personal data l
   `homes.py` lists the data folders `setup.py link` registered (`$XDG_CONFIG_HOME/trawlnet/homes`): only those get their
   `.venv` python run by the server.
 - `skills/job-search/scripts/` — stdlib + PyYAML engine. `common.py` (paths, config + pack merge, parsing),
-  `jobsearch.py` (plan/feeds/filter/decide/shortlist/publish/…), `sources/` (one module per board; see below), `db.py` (SQLite state +
+  `jobsearch.py` (plan/feeds/filter/decide/shortlist/publish/…), `runner.py` (the detached plan→shortlist run behind the
+  MCP `run_feeds`), `sources/` (one module per board; see below), `db.py` (SQLite state +
   migrations), `tracker.py` (csv/gsheets), `firecrawl.py` (credit budget), `discover.py`, `wwr_verify.py`,
   `setup.py` (stdlib only: init/link/env/doctor).
 - `sources/` — `__init__.py` holds `BOARDS` (lookup order), `ATS_FETCHERS`, description routing and `fetch_all`; `net.py`

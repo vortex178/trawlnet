@@ -120,10 +120,22 @@ class InitTest(TmpCase):
 
     def test_init_runs_env_unless_disabled(self):
         home = self.tmp() / "envd"
-        with mock.patch.object(js_setup, "env", return_value="env: fake ready") as env:
+        with mock.patch.object(js_setup, "env", return_value="env: fake ready") as env, \
+                mock.patch.object(js_setup, "MIN_PY", (3, 0)):
             out = capture(js_setup.init, init_args(home, no_env=False))
         env.assert_called_once()
         self.assertIn("env: fake ready", out)
+
+    def test_old_python_stops_init_before_it_creates_anything(self):
+        home = self.tmp() / "old"
+        with mock.patch.object(js_setup.shutil, "which", return_value=None), \
+                mock.patch.object(js_setup, "MIN_PY", (99, 0)), self.assertRaisesRegex(SystemExit, "Python >= 99.0"):
+            js_setup.init(init_args(home, no_env=False))
+        self.assertFalse(home.exists())
+        with mock.patch.object(js_setup.shutil, "which", return_value="/usr/bin/uv"), \
+                mock.patch.object(js_setup, "MIN_PY", (99, 0)), mock.patch.object(js_setup, "env", return_value="e"):
+            capture(js_setup.init, init_args(home, no_env=False))  # uv brings its own python
+        self.assertTrue((home / "config.yaml").exists())
 
 
 class LinkTest(TmpCase):
