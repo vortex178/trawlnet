@@ -96,7 +96,9 @@ class RunTools(unittest.TestCase):
         self.assertEqual(out["counts"], {"accepted": 2, "ambiguous": 0, "rejected": 1, "shortlisted": 3,
                                          "with_description": 1})
         with mock.patch.object(mcp_tools, "MAX_ROWS", 1):
-            self.assertIn("more than 1 rows or a row over", call("run_status"))
+            self.assertIn("more than 1 rows, over", call("run_status"))
+        with mock.patch.object(mcp_tools, "MAX_FILE", 20):
+            self.assertIn("over 0M characters", call("run_status"))  # a gzip bomb of short rows is cut off too
         with mock.patch.object(mcp_tools, "MAX_LINE", 8):
             self.assertIn("a row over 8 bytes", call("run_status"))  # one huge line is never read whole
         (self.d / "rejected.jsonl.gz").write_bytes(gzip.compress(b'{"key": "c"}\n')[:-6])

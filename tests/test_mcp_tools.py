@@ -72,6 +72,12 @@ class ReadTools(unittest.TestCase):
         self.assertIn("backend-sde", s["profiles"])
         self.assertTrue(s["tracker"].startswith("tracker: csv"))
         self.assertIsInstance(s["warnings"], list)
+        clone = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, clone, True)
+        with mock.patch.object(mcp_tools, "HOME", clone), mock.patch.object(common, "HOME", clone):
+            self.assertIn("No config.yaml", call("status"))  # not a data folder at all
+            (clone / "config.yaml").write_text("country: [", encoding="utf-8")
+            self.assertEqual(set(call("status")), {"data_folder", "registered", "next"})  # its config is never read
 
     def test_search_orders_by_score_with_unscored_last(self):
         self.assertEqual([j["key"] for j in call("search_jobs")["jobs"]], ["a", "b", "c"])
@@ -448,17 +454,21 @@ class SaveProfile(unittest.TestCase):
         (self.dir / "master.yaml").write_text(
             "facts:\n- {id: F001, resumes: appsec, text: Shared}\n- {id: F002, retired: true, text: Old}\n"
             "- {id: F005, retired: 'false', text: Back}\n"
-            "- {id: F003, text: [a, b]}\n", encoding="utf-8")
+            "- {id: F003, text: [a, b]}\n- {id: [F009], text: Listed}\n", encoding="utf-8")
         self.save(dict(self.PROF, resume="data/resumes/backend-eng.md"),
                   facts=[{"text": "Shared"}, {"text": "Old"}, {"text": "Back"}])
         facts = self.load("master.yaml")["facts"]
         self.assertEqual(facts[0]["resumes"], ["appsec", "backend-eng"])
         self.assertNotIn("resumes", facts[1])  # a retired fact stays retired; the returning bullet gets a new id
         self.assertEqual(facts[2]["resumes"], ["backend-eng"])  # retired only when literally true
-        self.assertEqual((facts[4]["id"], facts[4]["text"]), ("F006", "Old"))
+        self.assertEqual((facts[5]["id"], facts[5]["text"]), ("F006", "Old"))  # a non-string id is not counted
         self.assertEqual(self.load("backend-eng.yaml")["resume"], "data/resumes/backend-eng.md")
         self.save(dict(self.PROF, core_skills=["\u0420\u0430\u0437\u0440\u0430\u0431\u043e\u0442\u043a\u0430"]),
                   replace=True)  # non-Latin skills are fine; the resume link is kept when a replace omits it
+        self.assertIn("\u0420\u0430\u0437", (self.dir / "backend-eng.yaml").read_text(encoding="utf-8"))  # unescaped
+        (self.dir / "master.yaml").write_text('facts:\n- {id: F001, text: "a\\Nb"}\n', encoding="utf-8")
+        self.save(facts=[{"text": "c"}], replace=True)
+        self.assertEqual(self.load("master.yaml")["facts"][0]["text"], "a\x85b")  # NEL kept: escaped, not raw
         self.assertEqual(list(self.load("backend-eng.yaml"))[:3], ["id", "label", "resume"])
         (self.dir / "backend-eng.yaml").write_text("id: [\n", encoding="utf-8")
         self.assertEqual(self.save(replace=True)["replaced"], True)  # a broken profile can be replaced
