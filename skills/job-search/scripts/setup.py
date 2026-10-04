@@ -158,6 +158,13 @@ def link(home: Path, dev: bool = False) -> list:
 
 # ---------- env ----------
 
+def _need_python() -> None:
+    """Exit unless this Python can build the venv; `init` asks first, so a too-old python3 leaves no half-made folder."""
+    if sys.version_info < MIN_PY:
+        sys.exit(f"Python >= {'.'.join(map(str, MIN_PY))} needed for the env (this is {sys.version.split()[0]}); "
+                 "install a newer python3 or uv, and run this command with it (e.g. python3.12 setup.py ...)")
+
+
 def env(home: Path) -> str:
     venv = home / ".venv"
     req = PLUGIN / "requirements.txt"
@@ -168,9 +175,7 @@ def env(home: Path) -> str:
         subprocess.run([uv, "pip", "install", "-q", "--python", str(venv / "bin" / "python"), "-r", str(req)],
                        check=True)
         return "env: uv venv ready"
-    if sys.version_info < MIN_PY:
-        sys.exit(f"Python >= {'.'.join(map(str, MIN_PY))} needed for the env (this is {sys.version.split()[0]}); "
-                 "install a newer python3 or uv")
+    _need_python()
     if not venv.exists():
         subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
     subprocess.run([str(venv / "bin" / "python"), "-m", "pip", "install", "-q", "-r", str(req)], check=True)
@@ -188,6 +193,8 @@ def init(a) -> None:
     home = _home(a)
     if (home / "config.yaml").exists():
         sys.exit(f"{home}/config.yaml exists; edit it instead (or choose another --home)")
+    if not a.no_env and not shutil.which("uv"):
+        _need_python()
     pack = PLUGIN / "packs" / f"{a.country.lower()}.yaml"
     if not pack.exists():
         sys.exit(f"no pack for {a.country}; available: {', '.join(p.stem.upper() for p in (PLUGIN / 'packs').glob('*.yaml'))}")

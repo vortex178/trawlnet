@@ -14,7 +14,7 @@ Collect answers in one short exchange (offer defaults), then run one command. Ne
    Indeed connector, pass the prefix `mcp__<id>`; otherwise skip (Indeed off). Ignore `mcp__plugin_trawlnet_*`: that is
    this plugin's own MCP server, which also has a `search_jobs` tool.
 
-Run (requires Python ≥ 3.9 or `uv`; creates `.venv` and installs requirements):
+Run (requires Python ≥ 3.10 or `uv`; creates `.venv` and installs requirements):
 ```
 python3 "<skill>/scripts/setup.py" init --home <folder> --country <CC> --cities "<a,b>" --remote-bias <b> \
   --timezone <tz> --forbidden-shift "<hh:mm-hh:mm>" --max-yoe <n> (--salary-floor <n> | --salary-floor-lpa <n>) \
@@ -24,5 +24,8 @@ Then tell the user to: open a Claude Code session in the data folder; add each r
 optionally add keys to `.secrets/` (Adzuna `adzuna.json`, Firecrawl `firecrawl.key`, Google service account) and
 enable the matching `sources`/`firecrawl` flags; run `./js discover run` (seeds: config `seeds:` list, else the pack's default_seed; `--seed a,b` overrides); do a dry run
 (`run --dry`), then a real run. `./js setup doctor` checks everything.
+
+Free Claude plan (Claude Desktop, no Claude Code): add `--preset free` (and omit `--indeed`), then
+`setup.py desktop-config --home <folder> --write`; the README's "Free Claude plans" section has the full steps.
 
 Updating the plugin: the next `run` re-links automatically (`setup.py link`); restart the session if agents changed.

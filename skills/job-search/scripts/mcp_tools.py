@@ -466,7 +466,7 @@ def save_profile(args: dict) -> dict:
 
 
 DOCS = {"scoring_rubric": "scoring-rubric.md", "tailoring_rules": "tailoring-rules.md"}
-WORKFLOWS = ("build_profile", "tailor_for_job", "weekly_review")  # prompts of mcp_content, served by name
+WORKFLOWS = ("build_profile", "run_job_search", "tailor_for_job", "weekly_review")  # prompts of mcp_content, served by name
 
 
 @tool("get_instructions", "The step-by-step instructions of a trawlnet workflow, for clients that do not show MCP "

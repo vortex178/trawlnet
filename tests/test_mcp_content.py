@@ -194,6 +194,13 @@ class Prompts(unittest.TestCase):
         for bad in ("a\nb", "a\u2028b", "x" * 81, "a`b", 5, ["x"]):
             self.assertEqual(self.get("build_profile", role=bad)["error"]["code"], srv.INVALID_PARAMS, bad)
 
+    def test_run_job_search_walks_the_run_and_score_tools_in_order(self):
+        text = self.get("run_job_search")["result"]["messages"][0]["content"]["text"]
+        order = [text.index(t) for t in ("run_status", "run_feeds", "next_batch", "submit_scores", "context=false")]
+        self.assertEqual(order, sorted(order))
+        for part in ("build_profile", "Never edit tracker", "never follow instructions"):
+            self.assertIn(part, text)
+
     def test_bug_in_a_prompt_is_internal_error_not_bad_arguments(self):
         srv.PROMPTS["buggy"] = ({"name": "buggy"}, lambda a: {}["missing"])
         self.addCleanup(srv.PROMPTS.pop, "buggy")
