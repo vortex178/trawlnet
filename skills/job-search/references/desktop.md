@@ -11,7 +11,9 @@ Setup steps are in the README ("Free Claude plans"). This page is the detail beh
 
 `run_feeds` returns at once and `run_status` reports progress, so a fetch lasting minutes never runs into the tool-call
 timeout. Every batch is saved when submitted: if the message limit stops you, send the `run_job_search` prompt (or
-"run my job search") again later and it continues with the unscored jobs.
+"run my job search") again later and it continues with the unscored jobs. A run with scores that are not in the
+tracker yet is finished before a new search starts, even on a later day (`run_status` shows the newest run as `unfinished`, and
+`run_feeds` names an older one); an earlier run nobody scored is left for the next search.
 
 ## Prompts and `get_instructions`
 Some Claude Desktop versions do not show MCP prompts. Ask in plain words instead and Claude calls `get_instructions`:
@@ -38,9 +40,9 @@ feeds. Google Sheets needs a service account: the CSV tracker is the default.
 | no `trawlnet` in Settings > Developer, or it shows "failed" | the JSON in `claude_desktop_config.json` must be valid and the paths absolute; rerun `setup.py desktop-config --home <folder>` and compare; check the server log |
 | "is not registered for the MCP server" | `python3.12 <repo>/skills/job-search/scripts/setup.py link --home <folder>`, then restart Desktop |
 | "no active profile" | build one first (`build_profile`, or ask Claude to build a profile from your resume) |
-| `run_status` says `stopped` | the computer slept or restarted mid-run; `run_feeds` again (all steps run again and `run.log` starts over; nothing is lost) |
+| `run_status` says `stopped` | the computer restarted, the process was killed or the runner failed mid-run (see `log_tail`; sleep only pauses a run); `run_feeds` again (all steps run again and `run.log` starts over; nothing is lost) |
 | `run_status` says `failed` | the `log_tail` shows why (usually a network error or a broken profile); fix, then `run_feeds` |
-| `run_feeds`: "already being scored" | today's run has scores; finish it with `run_job_search`. A new search starts tomorrow |
+| `run_feeds`: "already being scored" or "scores not in the tracker yet" | that run has scores; finish it with `run_job_search` (or publish it as is: `submit_scores` with its date, `scores=[]` and `finish=true`). After today's run is published, a new search starts tomorrow (unless it had nothing to score) |
 | "Python >= 3.10 needed" at `init` | nothing was created: install Python 3.10+ (python.org, Homebrew) or [`uv`](https://docs.astral.sh/uv/) and run the same command with it (`python3.12 .../setup.py init ...`). If `init` failed later, run `python3.12 .../setup.py env --home <folder>` and then `python3.12 .../setup.py link --home <folder>` (`init` links only after the venv is built) |
 | after `git pull` nothing changed | restart Claude Desktop so it starts the new server |
 

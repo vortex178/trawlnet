@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 from pathlib import Path
 
 STEPS = ("plan", "feeds", "filter", "shortlist")
@@ -77,18 +78,22 @@ def run(d: Path) -> int:
         return 1  # another runner has it: leave its progress alone
     started, done = now(), []
     with held, open(d / "run.log", "a", encoding="utf-8") as log:
-        for step in STEPS:
-            write_progress(d, state="running", step=step, done=done, started=started)
-            log.write(f"$ {step}\n")
-            log.flush()
-            rc = subprocess.call([sys.executable, str(SCRIPT), step, "--date", d.name, "--quiet"],
-                                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, **NO_WINDOW)
-            if rc:
-                write_progress(d, state="failed", step=step, exit_code=rc, done=done, started=started,
-                               finished=now())
-                return rc
-            done.append(step)
-        write_progress(d, state="done", done=done, started=started, finished=now())
+        try:
+            for step in STEPS:
+                write_progress(d, state="running", step=step, done=done, started=started)
+                log.write(f"$ {step}\n")
+                log.flush()
+                rc = subprocess.call([sys.executable, str(SCRIPT), step, "--date", d.name, "--quiet"],
+                                     stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, **NO_WINDOW)
+                if rc:
+                    write_progress(d, state="failed", step=step, exit_code=rc, done=done, started=started,
+                                   finished=now())
+                    return rc
+                done.append(step)
+            write_progress(d, state="done", done=done, started=started, finished=now())
+        except Exception:  # through this handle: on Windows the inherited stderr would write over the log's start
+            log.write(traceback.format_exc())  # run_status then reports the run stopped, with this in its tail
+            return 1
     return 0
 
 

@@ -31,6 +31,7 @@ class RunTools(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.runs.parent, True)
         self.d = self.runs / "2026-10-04"
         for patch in (mock.patch.object(mcp_tools, "RUNS_DIR", self.runs),
+                      mock.patch.object(mcp_tools, "DATA", self.runs.parent),
                       mock.patch.object(mcp_tools, "today", return_value="2026-10-04"),
                       mock.patch.object(mcp_tools.subprocess, "Popen")):
             self.popen = patch.start()
@@ -41,9 +42,11 @@ class RunTools(unittest.TestCase):
         (self.d / name).write_text(text, encoding="utf-8")
 
     def test_start_spawns_one_detached_runner_and_reports_starting(self):
+        self.write("run.log", "an earlier run's log\n")
         self.assertEqual(call("run_feeds")["state"], "starting")
         cmd, kw = self.popen.call_args.args[0], self.popen.call_args.kwargs
         self.assertEqual(cmd[1:], [str(runner.__file__), str(self.d)])
+        self.assertEqual((kw["stdout"].mode, (self.d / "run.log").read_text(encoding="utf-8")), ("a", ""))
         self.assertEqual((kw["stdout"].name, kw["stderr"], kw["env"]["JOB_SEARCH_HOME"], kw["env"]["PYTHONIOENCODING"],
                           kw["start_new_session"]), (str(self.d / "run.log"), kw["stdout"], str(common.HOME), "utf-8", True))
         self.assertEqual(call("run_status")["state"], "starting")
@@ -178,6 +181,70 @@ class RunTools(unittest.TestCase):
         self.addCleanup(mcp_tools._children.clear)
         call("run_status")
         self.assertEqual(mcp_tools._children, [live])
+
+    def test_wait_holds_the_call_until_the_step_changes(self):
+        self.d.mkdir(parents=True)
+        runner.write_progress(self.d, state="running", step="feeds")
+        held = runner.lock(self.d / "run.lock")
+        self.addCleanup(held.close)
+        clock = iter(range(0, 1000, 2))
+        steps = iter(["feeds"] + ["filter"] * 9)
+        def sleep(_):
+            runner.write_progress(self.d, state="running", step=next(steps))
+        with mock.patch.object(mcp_tools.time, "monotonic", side_effect=lambda: next(clock)), \
+                mock.patch.object(mcp_tools.time, "sleep", side_effect=sleep) as slept:
+            self.assertEqual(call("run_status", wait=30)["step"], "filter")
+            self.assertEqual(slept.call_count, 2)
+            self.assertEqual(call("run_status", wait=4)["step"], "filter")  # no change: back after the wait
+            self.assertEqual(slept.call_count, 3)  # the clock moves 2 s per reading: one sleep fits in 4 s
+            self.assertEqual(call("run_status")["step"], "filter")
+            self.assertEqual(slept.call_count, 3)
+        for bad in (-1, 31):
+            self.assertIsInstance(call("run_status", wait=bad), str, bad)
+
+    def test_wait_ends_when_the_run_stops_or_is_done(self):
+        self.d.mkdir(parents=True)
+        for end, state in ((lambda held: held.close(), "stopped"),
+                           (lambda held: runner.write_progress(self.d, state="done"), "done")):
+            runner.write_progress(self.d, state="running", step="feeds")
+            held = runner.lock(self.d / "run.lock")
+            self.addCleanup(held.close)
+            with mock.patch.object(mcp_tools.time, "sleep", side_effect=lambda _: end(held)) as slept:
+                self.assertEqual(call("run_status", wait=30)["state"], state)
+            self.assertEqual(slept.call_count, 1)
+            held.close()
+
+    def test_a_scored_run_is_published_before_a_new_one_starts(self):
+        old = self.runs / "2026-10-03"
+        old.mkdir(parents=True)
+        runner.write_progress(old, state="done")
+        self.assertEqual({k: call("run_status")[k] for k in ("published", "unfinished")},
+                         {"published": False, "unfinished": False})  # nobody scored it: left for the next search
+        (old / "scores-chat-1.jsonl").write_text("{}\n", encoding="utf-8")
+        (old / "scores-chat-2.jsonl").symlink_to(old / "gone")  # dangling: still has an mtime, never raises
+        self.assertTrue(call("run_status")["unfinished"])
+        self.assertIn("the 2026-10-03 run has scores not in the tracker yet", call("run_feeds"))
+        digest = self.runs.parent / "digests" / "2026-10-03.md"
+        digest.parent.mkdir()
+        digest.write_text("# digest\n", encoding="utf-8")
+        os.utime(digest, ns=(1, 1))  # published before the last scores were saved
+        self.assertIn("not in the tracker yet", call("run_feeds"))
+        newest = max(p.lstat().st_mtime_ns for p in old.iterdir()) + 10 ** 9
+        os.utime(digest, ns=(newest, newest))
+        self.assertEqual({k: call("run_status")[k] for k in ("published", "unfinished")},
+                         {"published": True, "unfinished": False})
+        self.assertEqual(call("run_feeds")["state"], "starting")
+        (self.runs.parent / "digests" / "2026-10-04.md").write_text("# an earlier run's\n", encoding="utf-8")
+        os.utime(self.runs.parent / "digests" / "2026-10-04.md", ns=(1, 1))
+        runner.write_progress(self.d, state="done")
+        self.assertEqual({k: call("run_status")[k] for k in ("published", "unfinished")},
+                         {"published": False, "unfinished": True})  # today's: scored next, even with nothing scored
+        self.write("scores-chat-1.jsonl", "{}\n")
+        self.assertIn("already being scored", call("run_feeds"))
+        (self.runs.parent / "digests" / "2026-10-04.md").write_text("# digest\n", encoding="utf-8")
+        for f in ("scores-chat-1.jsonl", "progress.json"):
+            os.utime(self.d / f, ns=(1, 1))
+        self.assertIn("the 2026-10-04 search is already published", call("run_feeds"))
 
     def test_old_starting_state_is_stale(self):
         old = (dt.datetime.now() - dt.timedelta(seconds=mcp_tools.STARTING_GRACE + 5)).isoformat()

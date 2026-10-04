@@ -45,6 +45,16 @@ class Runner(unittest.TestCase):
         self.assertEqual((prog["state"], prog["step"], prog["exit_code"], prog["done"]),
                          ("failed", "filter", 2, ["plan", "feeds"]))
 
+    def test_the_runners_own_error_is_appended_to_the_log(self):
+        (self.d / "run.log").write_text("started by run_feeds\n", encoding="utf-8")
+        with mock.patch.object(runner.subprocess, "call", return_value=0), \
+                mock.patch.object(runner, "write_progress", side_effect=[None, OSError("disk full")]):
+            self.assertEqual(runner.run(self.d), 1)
+        log = (self.d / "run.log").read_text(encoding="utf-8")
+        self.assertTrue(log.startswith("started by run_feeds\n$ plan\nTraceback"), log)
+        self.assertIn("OSError: disk full", log)
+        self.assertFalse(runner.running(self.d))
+
     def test_a_second_runner_leaves_the_first_alone(self):
         held = runner.lock(self.d / "run.lock")
         self.addCleanup(held.close)

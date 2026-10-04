@@ -46,12 +46,15 @@ class ScoreTools(unittest.TestCase):
         for patch in (mock.patch.object(mcp_tools, "RUNS_DIR", self.runs),
                       mock.patch.object(mcp_tools, "load_profiles", return_value=PROFILES),
                       mock.patch.object(mcp_tools, "load_config", return_value={}),
+                      mock.patch.object(mcp_tools, "DATA", self.runs.parent),
                       mock.patch.object(mcp_tools, "cmd_publish", side_effect=self.publish)):
             patch.start()
             self.addCleanup(patch.stop)
 
     def publish(self, a, cfg):
         self.published.append(a.date)
+        (self.runs.parent / "digests").mkdir(exist_ok=True)
+        (self.runs.parent / "digests" / f"{a.date}.md").write_text("# digest\n", encoding="utf-8")
         print("scored 3/5 | tracker: +2 queued")
 
     def scores(self):
@@ -77,7 +80,9 @@ class ScoreTools(unittest.TestCase):
                           result("wwr:3", profile=["data"]))  # them: still to score
         self.assertEqual(call("next_batch")["remaining"], 1)
         self.write_scores("scores-1.jsonl", result("wwr:3", profile="data"))
-        self.assertIn("every described job is scored", call("next_batch")["next"])
+        self.assertIn("scored but not published yet", call("next_batch")["next"])
+        call("submit_scores", scores=[], finish=True)
+        self.assertIn("scored and published", call("next_batch")["next"])
 
     def test_scores_are_saved_then_the_run_is_published(self):
         out = call("submit_scores", scores=[result("wwr:1", gaps=["Kubernetes — not evidenced"]),
@@ -97,7 +102,7 @@ class ScoreTools(unittest.TestCase):
         self.assertEqual([jobsearch._valid_score(s, short, PROFILES) for s in saved], ["", "", ""])
         self.assertEqual(sorted(p.name for p in self.d.glob("scores-*.jsonl")), ["scores-chat-1.jsonl",
                                                                                   "scores-chat-2.jsonl"])
-        self.assertIn("finish=true", call("submit_scores", scores=[result("wwr:1")])["next"])  # nothing left to save
+        self.assertIn("and published", call("submit_scores", scores=[result("wwr:1")])["next"])  # nothing to save
 
     def test_invalid_results_come_back_and_valid_ones_are_kept(self):
         bad = [result("wwr:9"), result("wwr:1", profile="data"), result("wwr:1", score=True),
