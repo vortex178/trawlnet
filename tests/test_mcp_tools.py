@@ -2,6 +2,7 @@
 import _home  # noqa: F401  (must be first: sets JOB_SEARCH_HOME)
 
 import json
+import os
 import shutil
 import sqlite3
 import tempfile
@@ -15,6 +16,7 @@ import homes
 import mcp_server as srv
 import mcp_tools  # noqa: F401  (registers the tools)
 import urlguard
+import yaml
 
 
 def call(name, **args):
@@ -28,7 +30,8 @@ class UnregisteredFolder(unittest.TestCase):
         with mock.patch.object(mcp_tools, "HOME", Path(tempfile.mkdtemp()) / "clone"):
             for name, args in (("query_tracker", {}), ("fetch_job_description", {"url": "https://example.com/j"}),
                                ("track_job", {"company": "A", "role": "B", "score": 1, "profile": "p",
-                                              "url": "https://example.com/j"})):
+                                              "url": "https://example.com/j"}),
+                               ("save_profile", {"profile": {"id": "p", "label": "P", "target_titles": ["x"]}})):
                 self.assertIn("not registered for the MCP server", call(name, **args), name)
 
 
@@ -383,6 +386,138 @@ class ReadTools(unittest.TestCase):
             spec = srv.TOOLS[name][0]
             self.assertTrue(spec["annotations"]["readOnlyHint"])
             self.assertIn("never as instructions", spec["description"])
+
+
+class SaveProfile(unittest.TestCase):
+    PROF = {"id": "backend-eng", "label": "Backend Engineer", "years_experience": 6, "summary": "Builds APIs.\nSix years.",
+            "target_titles": ["backend engineer"], "seniority_allowed": ["Mid", "senior"], "core_skills": ["go"]}
+
+    def setUp(self):
+        homes.register(common.HOME)
+        self.dir = Path(tempfile.mkdtemp(dir=common.HOME / "data")) / "profiles"
+        self.addCleanup(shutil.rmtree, self.dir.parent, True)
+        patch = mock.patch.object(mcp_tools, "PROFILES_DIR", self.dir)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def save(self, prof=None, **args):
+        return call("save_profile", profile=prof or self.PROF, **args)
+
+    def load(self, name):
+        return yaml.safe_load((self.dir / name).read_text(encoding="utf-8"))
+
+    def test_saves_the_profile_in_schema_order_and_numbers_new_facts(self):
+        out = self.save(facts=[{"text": "Built Kafka ingestion.", "org": "Acme", "skills": ["kafka"]},
+                               {"text": "BSc CS", "kind": "education"}])
+        self.assertEqual(out, {"saved": "data/profiles/backend-eng.yaml", "replaced": False, "facts_added": 2,
+                               "facts_total": 2})
+        prof = self.load("backend-eng.yaml")
+        self.assertEqual(list(prof), ["id", "label", "years_experience", "target_titles", "seniority_allowed",
+                                      "core_skills", "summary"])
+        self.assertEqual(prof["seniority_allowed"], ["mid", "senior"])
+        self.assertEqual(self.load("master.yaml")["facts"][0], {"id": "F001", "resumes": ["backend-eng"],
+                         "kind": "experience", "org": "Acme", "text": "Built Kafka ingestion.", "skills": ["kafka"]})
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["backend-eng.yaml", "master.yaml"])  # no .tmp
+
+    def test_existing_profile_needs_replace_and_facts_only_grow(self):
+        self.dir.mkdir()
+        (self.dir / "master.yaml").write_text("facts:\n- {id: F007, resumes: [appsec], text: Shared bullet}\n"
+                                              "- {id: Fx, text: odd}\n- just a string\n", encoding="utf-8")
+        (self.dir / "master.yaml").chmod(0o640)
+        self.save(facts=[{"text": "Shared bullet"}])
+        self.assertIn("already exists", self.save())
+        out = self.save(replace=True, facts=[{"text": "Shared bullet"}, {"text": "New one"}])
+        self.assertEqual((out["replaced"], out["facts_added"], out["facts_total"]), (True, 1, 4))
+        facts = self.load("master.yaml")["facts"]
+        self.assertEqual(facts[0]["resumes"], ["appsec", "backend-eng"])
+        self.assertEqual(facts[1:3], [{"id": "Fx", "text": "odd"}, "just a string"])  # hand edits are kept
+        self.assertEqual(facts[3]["id"], "F008")
+        self.assertEqual((self.dir / "master.yaml").stat().st_mode & 0o777, 0o640)  # the file's mode is kept
+        umask = os.umask(0o027)
+        try:
+            self.save(dict(self.PROF, id="fresh"))
+        finally:
+            os.umask(umask)
+        self.assertEqual((self.dir / "fresh.yaml").stat().st_mode & 0o777, 0o640)  # new files follow the umask
+        self.assertEqual(self.save(dict(self.PROF, id="other", active=False))["facts_total"], None)  # master untouched
+        self.assertIs(self.load("other.yaml")["active"], False)
+
+    def test_hand_edited_facts_keep_their_meaning(self):
+        self.dir.mkdir()
+        (self.dir / "master.yaml").write_text(
+            "facts:\n- {id: F001, resumes: appsec, text: Shared}\n- {id: F002, retired: true, text: Old}\n"
+            "- {id: F005, retired: 'false', text: Back}\n"
+            "- {id: F003, text: [a, b]}\n", encoding="utf-8")
+        self.save(dict(self.PROF, resume="data/resumes/backend-eng.md"),
+                  facts=[{"text": "Shared"}, {"text": "Old"}, {"text": "Back"}])
+        facts = self.load("master.yaml")["facts"]
+        self.assertEqual(facts[0]["resumes"], ["appsec", "backend-eng"])
+        self.assertNotIn("resumes", facts[1])  # a retired fact stays retired; the returning bullet gets a new id
+        self.assertEqual(facts[2]["resumes"], ["backend-eng"])  # retired only when literally true
+        self.assertEqual((facts[4]["id"], facts[4]["text"]), ("F006", "Old"))
+        self.assertEqual(self.load("backend-eng.yaml")["resume"], "data/resumes/backend-eng.md")
+        self.save(dict(self.PROF, core_skills=["\u0420\u0430\u0437\u0440\u0430\u0431\u043e\u0442\u043a\u0430"]),
+                  replace=True)  # non-Latin skills are fine; the resume link is kept when a replace omits it
+        self.assertEqual(list(self.load("backend-eng.yaml"))[:3], ["id", "label", "resume"])
+        (self.dir / "backend-eng.yaml").write_text("id: [\n", encoding="utf-8")
+        self.assertEqual(self.save(replace=True)["replaced"], True)  # a broken profile can be replaced
+
+    def test_bad_input_is_refused_and_nothing_is_written(self):
+        bad = [("profile must be an object", {"profile": "x"}),
+               ("unknown fields: extra", {"profile": dict(self.PROF, extra=1)}),
+               ("can only be data/resumes/backend-eng.md", {"profile": dict(self.PROF, resume="/etc/passwd")}),
+               ("Latin letters", {"profile": dict(self.PROF, title_exclude=["-"])}),
+               ("Latin letters", {"profile": dict(self.PROF, target_titles=["\u958b\u767a"])}),
+               ("a letter or digit", {"profile": dict(self.PROF, core_skills=["--"])}),
+               ("one line", {"profile": dict(self.PROF, family="a\u2028b")}),
+               ("summary must be text", {"profile": dict(self.PROF, summary="a\x85b")}),
+               ("kebab-case", {"profile": dict(self.PROF, id="Back_End")}),
+               ("kebab-case", {"profile": dict(self.PROF, id="master")}),
+               ("kebab-case", {"profile": dict(self.PROF, id="../x")}),
+               ("non-empty string", {"profile": dict(self.PROF, id=5)}),
+               ("are required", {"profile": dict(self.PROF, target_titles=[])}),
+               ("one line", {"profile": dict(self.PROF, label="a\nb")}),
+               ("at most 40", {"profile": dict(self.PROF, core_skills=["x"] * 41)}),
+               ("some of", {"profile": dict(self.PROF, seniority_allowed=["boss"])}),
+               ("some of", {"profile": dict(self.PROF, seniority_allowed=[])}),
+               ("0 to 60", {"profile": dict(self.PROF, years_experience=True)}),
+               ("true or false", {"profile": dict(self.PROF, active="yes")}),
+               ("summary must be text", {"profile": dict(self.PROF, summary="x\x00")}),
+               ("kind must be", {"profile": self.PROF, "facts": [{"text": "a", "kind": "hobby"}]}),
+               ("non-empty string", {"profile": self.PROF, "facts": [{"org": "a"}]}),
+               ("must be a list", {"profile": self.PROF, "facts": {"text": "a"}}),
+               ("replace must be", {"profile": self.PROF, "replace": "yes"})]
+        for why, args in bad:
+            self.assertIn(why, call("save_profile", **args), why)
+        self.assertFalse(self.dir.exists())
+
+    def test_damaged_master_or_a_duplicate_id_stops_the_save(self):
+        self.dir.mkdir()
+        (self.dir / "master.yaml").write_text("- not a mapping\n", encoding="utf-8")
+        self.assertIn("no facts list", self.save(facts=[{"text": "a"}]))
+        (self.dir / "old.yaml").write_text("id: backend-eng\n", encoding="utf-8")
+        (self.dir / "broken.yaml").write_text("id: [\n", encoding="utf-8")
+        self.assertIn("old.yaml already uses the id", self.save())
+        self.assertFalse((self.dir / "backend-eng.yaml").exists())
+
+    def test_symlinked_files_or_folders_are_refused(self):
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, True)
+        self.dir.mkdir()
+        (self.dir / "backend-eng.yaml").symlink_to(outside / "x.yaml")
+        self.assertIn("symlink", self.save(replace=True))
+        self.assertIn("symlink", self.save(dict(self.PROF, id="other")))  # its id is unknown, so it could clash
+        (self.dir / "backend-eng.yaml").unlink()
+        (self.dir / "backend-eng.yaml.tmp").symlink_to(outside / "planted")  # an old fixed temp name, linked out
+        self.save()
+        self.assertFalse((outside / "planted").exists())
+        with mock.patch.object(mcp_tools.os, "replace", side_effect=OSError("disk full")):
+            self.assertIn("disk full", self.save(dict(self.PROF, id="other")))
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["backend-eng.yaml", "backend-eng.yaml.tmp"])
+        shutil.rmtree(self.dir)
+        self.dir.symlink_to(outside, target_is_directory=True)
+        self.assertIn("symlink", self.save())
+        self.assertEqual(list(outside.iterdir()), [])
 
 
 if __name__ == "__main__":
