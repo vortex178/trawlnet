@@ -120,7 +120,7 @@ no official Linux build.
 5. **Run a search.** In a new chat say: *"Run my job search"* (the `run_job_search` prompt). Claude starts the
    background fetch (`run_feeds`), follows it (`run_status`), then scores the shortlist three jobs at a time
    (`next_batch`, `submit_scores`) and publishes. Hitting the message limit is fine: say the same thing later, even
-   the next day, and it finishes that run's unscored jobs before a new search starts.
+   the next day, and once a batch was saved it finishes that run's unscored jobs before a new search starts.
 6. **Find the results:** matches at or above your minimum score are in `~/job-search/tracker.csv` (open it in Excel,
    Numbers or Google Sheets; the Status column is yours), and the full list in `~/job-search/data/digests/<date>.md`.
    Ask Claude to "show the digest" or "what is in my tracker" (`get_digest`, `query_tracker`).
