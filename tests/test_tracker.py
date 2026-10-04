@@ -120,6 +120,8 @@ class CsvBackendTest(unittest.TestCase):
             for method in (self.b.read_table, self.b.check):
                 with self.assertRaisesRegex(tracker.Unavailable, "unreadable: line contains NUL"):
                     method()
+        self.b.path.write_bytes("company\nCaf\u00e9\n".encode("cp1252"))  # e.g. saved by Excel on Windows
+        self.assertRaisesRegex(tracker.Unavailable, "unreadable: 'utf-8' codec", self.b.read_table)
 
     def test_describe(self):
         self.assertEqual(self.b.describe(), "tracker: csv tracker-csv2.csv")

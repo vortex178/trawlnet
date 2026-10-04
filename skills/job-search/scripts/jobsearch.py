@@ -172,7 +172,7 @@ def write_context(cfg) -> str:
     if cfg.get("exclude_contract"):
         lines.append("- Contract, freelance, temporary or fixed-term engagements: excluded (a deal_breaker fail)")
     path = DATA / "scoring-context.md"
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return rel(path)
 
 
@@ -197,7 +197,8 @@ def cmd_plan(a, cfg):
                     next(x for x in queries if (x["search"].lower(), x["location"].lower()) == k)["profiles"].append(pid)
     queries = queries[: cfg["max_indeed_queries"]]
     d = run_dir(a.date)
-    (d / "queries.json").write_text(json.dumps({"indeed": queries if cfg["sources"].get("indeed") else []}, indent=1))
+    (d / "queries.json").write_text(json.dumps({"indeed": queries if cfg["sources"].get("indeed") else []}, indent=1),
+                                    encoding="utf-8")
     write_context(cfg)
     zr = "" if cfg["sources"].get("ziprecruiter") else " (ZipRecruiter off: connector covers US/CA only)"
     print(f"run dir: {rel(d)} | profiles: {', '.join(profiles)} | indeed queries: {len(queries)}{zr}")
@@ -206,13 +207,14 @@ def cmd_plan(a, cfg):
 def cmd_feeds(a, cfg):
     from firecrawl import Budget
     from sources import fetch_all
-    companies = json.loads(COMPANIES_PATH.read_text()) if COMPANIES_PATH.exists() else []
+    companies = json.loads(COMPANIES_PATH.read_text(encoding="utf-8")) if COMPANIES_PATH.exists() else []
     budget = Budget(cfg, a.date)
     if a.dry:
         budget.enabled, budget.note = False, "--dry"
     records, counts, errors = fetch_all(cfg, companies, budget)
     budget.reconcile()
-    COMPANIES_PATH.write_text(json.dumps(companies, indent=1, ensure_ascii=False) + "\n")  # last_firecrawl
+    COMPANIES_PATH.write_text(json.dumps(companies, indent=1, ensure_ascii=False) + "\n",
+                              encoding="utf-8")  # last_firecrawl
     d = run_dir(a.date)
     write_jsonl(d / "feeds.jsonl", records)
     print(f"feeds: {len(records)} jobs from {len(counts)} sources" + (f"; {len(errors)} errors" if errors else "")
@@ -430,7 +432,7 @@ def cmd_shortlist(a, cfg):
                 print(f"  WARN {r['source']} detail failed for {r['key']}: {type(e).__name__}")
         if r.get("description"):
             (d / "jd" / f"{r['key']}.txt").write_text(
-                f"{r['title']} — {r['company']} — {r['location']}\n\n{r['description']}")
+                f"{r['title']} — {r['company']} — {r['location']}\n\n{r['description']}", encoding="utf-8")
             jd = rel(d / "jd" / f"{r['key']}.txt")
         elif r["source"] == "indeed":
             jd = f"indeed:{r['source_id']}"  # the scorer fetches it through the connector
@@ -565,9 +567,9 @@ def cmd_publish(a, cfg):
         lines += [f"- [{j['title']} — {j['company']}]({j['url']}) · {', '.join(j['profiles'])}" for j in leads]
     (DATA / "digests").mkdir(exist_ok=True)
     dig = DATA / "digests" / f"{a.date or now}.md"  # one digest per run folder (same-day re-runs don't overwrite)
-    dig.write_text("\n".join(lines) + "\n")
+    dig.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    fc = json.loads((d / "firecrawl.json").read_text()) if (d / "firecrawl.json").exists() else {}
+    fc = json.loads((d / "firecrawl.json").read_text(encoding="utf-8")) if (d / "firecrawl.json").exists() else {}
     top = next((f"{s['score']} {j['company']} — {j['title']}" for s, j, ok in digest if ok), "none")
     db.save_run(run, {"shortlisted": len(short), "scored": len(scores), "tracker": len(sheet_rows),
                       "leads": len(leads), "unscored": len(missing), "invalid": len(bad),
@@ -620,7 +622,7 @@ def update_claude_md(run: str, row: str, keep: int = 7) -> None:
     path = HOME / "CLAUDE.md"
     if not path.exists():
         return
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     start, end = "<!-- AUTO:RUNLOG:START -->", "<!-- AUTO:RUNLOG:END -->"
     if start not in text or end not in text:
         return
@@ -628,7 +630,7 @@ def update_claude_md(run: str, row: str, keep: int = 7) -> None:
     block, tail = rest.split(end, 1)
     lines = [l for l in block.strip().splitlines() if l.startswith("- ") and not l.startswith(f"- {run} ")]
     lines = ([f"- {run} {row}"] + lines)[:keep]
-    path.write_text(f"{head}{start}\n" + "\n".join(lines) + f"\n{end}{tail}")
+    path.write_text(f"{head}{start}\n" + "\n".join(lines) + f"\n{end}{tail}", encoding="utf-8")
 
 
 def fetch_job(page_url: str, cfg: dict, date: str | None = None, public_only: bool = False):
@@ -678,7 +680,7 @@ def cmd_fetch_url(a, cfg):
     slug = re.sub(r"[^a-z0-9]+", "-", f"{company}-{title}".lower()).strip("-")[:60]
     out = DATA / "tailoring" / slug
     out.mkdir(parents=True, exist_ok=True)
-    (out / "jd.txt").write_text(f"{title} — {company} — {loc}\nURL: {canon}\n\n{body}")
+    (out / "jd.txt").write_text(f"{title} — {company} — {loc}\nURL: {canon}\n\n{body}", encoding="utf-8")
     print(f"JD {rel(out / 'jd.txt')} | {title} — {company} — {loc}")
 
 
@@ -714,7 +716,7 @@ def status_data(cfg, read_only: bool = False) -> dict:
     creating or migrating jobs.db)."""
     from setup import seed_warnings
     from tracker import describe
-    companies = json.loads(COMPANIES_PATH.read_text()) if COMPANIES_PATH.exists() else []
+    companies = json.loads(COMPANIES_PATH.read_text(encoding="utf-8")) if COMPANIES_PATH.exists() else []
     return {"data_folder": str(HOME), "country": cfg.get("country"), "currency": cfg["currency"],
             "max_age_days": cfg["max_age_days"], "remote_scope": cfg.get("remote_scope"),
             "sources": [k for k, v in cfg["sources"].items() if v], "profiles": list(load_profiles()),

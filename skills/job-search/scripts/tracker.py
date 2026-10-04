@@ -140,7 +140,7 @@ class CsvBackend:
     def init(self):
         if not self.path.exists() or not self.path.stat().st_size:
             try:
-                with self.path.open("w", newline="") as f:
+                with self.path.open("w", newline="", encoding="utf-8") as f:
                     csv.writer(f).writerow(header(self.cfg))
             except OSError as e:
                 raise Unavailable(f"cannot write {rel(self.path)}: {e}")
@@ -149,9 +149,9 @@ class CsvBackend:
     def append(self, rows: list) -> str:
         try:
             if not self.path.exists() or not self.path.stat().st_size:
-                with self.path.open("w", newline="") as f:
+                with self.path.open("w", newline="", encoding="utf-8") as f:
                     csv.writer(f).writerow(header(self.cfg))
-            with self.path.open("a", newline="") as f:
+            with self.path.open("a", newline="", encoding="utf-8") as f:
                 csv.writer(f).writerows(_row(r, columns(self.cfg)) for r in rows)
         except OSError as e:  # open in a spreadsheet app that locks it (Windows), read-only: rows stay queued
             raise Unavailable(f"cannot write {rel(self.path)}: {e}")
@@ -162,9 +162,9 @@ class CsvBackend:
 
     def _read(self) -> list:
         try:
-            with self.path.open(newline="") as f:
+            with self.path.open(newline="", encoding="utf-8") as f:
                 return list(csv.reader(f))
-        except (csv.Error, OSError) as e:  # e.g. a NUL in the file (Python <= 3.10), no read permission
+        except (csv.Error, OSError, UnicodeDecodeError) as e:  # e.g. a NUL (Python <= 3.10), no permission, cp1252
             raise Unavailable(f"{rel(self.path)} is unreadable: {e}")
 
     def check(self):
@@ -314,7 +314,8 @@ def queue_lock():
         fcntl = None
     with contextlib.ExitStack() as stack:
         try:
-            f = stack.enter_context(PENDING_ROWS_PATH.with_name(PENDING_ROWS_PATH.name + ".lock").open("a"))
+            lock = PENDING_ROWS_PATH.with_name(PENDING_ROWS_PATH.name + ".lock")
+            f = stack.enter_context(lock.open("a", encoding="utf-8"))
             if fcntl:
                 fcntl.flock(f, fcntl.LOCK_EX)  # released when the file closes
         except OSError:  # a read-only folder or a filesystem without locks (some network or sync mounts): unlocked

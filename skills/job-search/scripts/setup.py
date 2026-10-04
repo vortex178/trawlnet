@@ -59,10 +59,10 @@ def _set_scalar(text: str, key: str, value) -> str:
 
 
 def _write_if_changed(path: Path, text: str) -> bool:
-    if path.exists() and path.read_text() == text:
+    if path.exists() and path.read_text(encoding="utf-8") == text:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     return True
 
 
@@ -105,7 +105,7 @@ def _indeed_prefix(text: str):
 
 
 def _agent_values(home: Path) -> dict:
-    cfg = (home / "config.yaml").read_text() if (home / "config.yaml").exists() else ""
+    cfg = (home / "config.yaml").read_text(encoding="utf-8") if (home / "config.yaml").exists() else ""
     indeed = _indeed_prefix(cfg)
     indeed_on = _read_yaml_scalar(cfg, "indeed")
     use = bool(indeed) and indeed_on is not False
@@ -118,8 +118,8 @@ def _agent_values(home: Path) -> dict:
         "INDEED_DETAILS_TOOL": f", {indeed}__get_job_details" if use else "",
         "INDEED_NOTE": "" if use else "The Indeed connector is not configured: skip Indeed steps; `indeed:` JD ids "
                                       "cannot occur.",
-        "SCORING_RUBRIC": (refs / "scoring-rubric.md").read_text().strip(),
-        "TAILORING_RULES": (refs / "tailoring-rules.md").read_text().strip(),
+        "SCORING_RUBRIC": (refs / "scoring-rubric.md").read_text(encoding="utf-8").strip(),
+        "TAILORING_RULES": (refs / "tailoring-rules.md").read_text(encoding="utf-8").strip(),
         "GENERATED": GENERATED,
     }
 
@@ -139,7 +139,7 @@ def link(home: Path, dev: bool = False) -> list:
         print(f"WARN could not register the folder for the MCP server: {e}", file=sys.stderr)
     vals = _agent_values(home)
     for t in sorted((TEMPLATES / "agents").glob("*.md")):
-        if _write_if_changed(home / ".claude" / "agents" / t.name, _render(t.read_text(), vals)):
+        if _write_if_changed(home / ".claude" / "agents" / t.name, _render(t.read_text(encoding="utf-8"), vals)):
             changed.append(f".claude/agents/{t.name}")
     if dev:
         dst = home / ".claude" / "skills" / "job-search"
@@ -191,7 +191,7 @@ def init(a) -> None:
     pack = PLUGIN / "packs" / f"{a.country.lower()}.yaml"
     if not pack.exists():
         sys.exit(f"no pack for {a.country}; available: {', '.join(p.stem.upper() for p in (PLUGIN / 'packs').glob('*.yaml'))}")
-    ptxt = pack.read_text()
+    ptxt = pack.read_text(encoding="utf-8")
     for d in ("data/profiles", "data/resumes", "data/runs", "data/digests", "data/tailoring", "data/seeds", ".secrets"):
         (home / d).mkdir(parents=True, exist_ok=True)
     (home / ".secrets").chmod(0o700)
@@ -214,24 +214,25 @@ def init(a) -> None:
         "SEARCH_LOCATIONS": "\n".join(["  - remote"] + [f"  - {c.title()}" for c in cities]),
         "ADZUNA_LOCATIONS": ", ".join(c.title() for c in cities),
     }
-    config = _render((TEMPLATES / "config.yaml").read_text(), vals)
+    config = _render((TEMPLATES / "config.yaml").read_text(encoding="utf-8"), vals)
     for key, value in PRESETS.get(a.preset, {}).items():
         config = _set_scalar(config, key, value)
-    (home / "config.yaml").write_text(config)
+    (home / "config.yaml").write_text(config, encoding="utf-8")
     g = lambda x: f"{x:g}"  # noqa: E731  (26.0 -> 26)
     floor = (f"min_lpa: {g(a.salary_floor_lpa)}" if a.salary_floor_lpa else
              f"min_annual: {g(a.salary_floor)}" if a.salary_floor else "min_annual: null")
-    (home / "data/profiles/preferences.yaml").write_text(_render((TEMPLATES / "preferences.yaml").read_text(), {
+    prefs = (TEMPLATES / "preferences.yaml").read_text(encoding="utf-8")
+    (home / "data/profiles/preferences.yaml").write_text(_render(prefs, {
         "SALARY_FLOOR": floor, "CURRENCY": currency, "MAX_YOE": g(a.max_yoe) if a.max_yoe is not None else "null",
         "REMOTE_BIAS": a.remote_bias, "TIMEZONE": tz, "FORBIDDEN_SHIFT": a.forbidden_shift or "",
-    }))
-    (home / "CLAUDE.md").write_text(_render((TEMPLATES / "CLAUDE.md.tmpl").read_text(), {
+    }), encoding="utf-8")
+    (home / "CLAUDE.md").write_text(_render((TEMPLATES / "CLAUDE.md.tmpl").read_text(encoding="utf-8"), {
         "HOME": str(home), "COUNTRY": a.country.upper(), "CITIES": ", ".join(cities) or "none (remote only)",
         "REMOTE_BIAS": a.remote_bias, "TIMEZONE": tz, "FORBIDDEN_SHIFT": a.forbidden_shift or "none",
         "SALARY": floor.replace("min_lpa: ", "").replace("min_annual: ", "") + f" {currency}"
                   + (" LPA" if a.salary_floor_lpa else " / year"),
         "MAX_YOE": g(a.max_yoe) if a.max_yoe is not None else "no limit", "TRACKER": a.tracker,
-    }))
+    }), encoding="utf-8")
     shutil.copy(TEMPLATES / "gitignore", home / ".gitignore")
     print(f"data folder: {home}")
     if not a.no_env:
@@ -311,9 +312,9 @@ def seed_warnings(home: Path, today=None) -> list:
     if not path.exists():
         return []
     mf = PLUGIN / "seeds" / "manifest.json"
-    manifest = json.loads(mf.read_text()) if mf.exists() else {}
+    manifest = json.loads(mf.read_text(encoding="utf-8")) if mf.exists() else {}
     boards = {}
-    for c in json.loads(path.read_text()):
+    for c in json.loads(path.read_text(encoding="utf-8")):
         if c.get("ats") != "custom" and c.get("seed"):
             boards.setdefault({"india": "in"}.get(c["seed"], c["seed"]), []).append(c)
     out = []
@@ -340,7 +341,7 @@ def doctor(home: Path) -> None:
     print(f"{ok(cfg.exists())}config.yaml")
     if not cfg.exists():
         return
-    text = cfg.read_text()
+    text = cfg.read_text(encoding="utf-8")
     cc = (_read_yaml_scalar(text, "country") or "?").lower()
     print(f"{ok((PLUGIN / 'packs' / f'{cc}.yaml').exists() or (home / 'packs' / f'{cc}.yaml').exists())}pack {cc}")
     profiles = [p.stem for p in (home / "data/profiles").glob("*.yaml") if p.stem not in ("master", "preferences")]

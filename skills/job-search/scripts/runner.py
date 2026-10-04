@@ -26,7 +26,7 @@ def now() -> str:
 
 def lock(path: Path):
     """An exclusive lock on `path`, held while the returned file stays open; None when another process holds it."""
-    f = open(path, "a+")
+    f = open(path, "a+", encoding="utf-8")
     try:
         if os.name == "nt":  # pragma: no cover
             import msvcrt

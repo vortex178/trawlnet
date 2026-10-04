@@ -93,7 +93,7 @@ def _import_legacy(c: sqlite3.Connection) -> None:
         seen.rename(seen.with_name("seen.jsonl.migrated"))
     wwr = DATA / "wwr_verify.json"
     if wwr.exists():
-        for k, v in json.loads(wwr.read_text() or "{}").items():
+        for k, v in json.loads(wwr.read_text(encoding="utf-8") or "{}").items():
             cache_put("wwr", k, v, c)
         wwr.rename(wwr.with_name("wwr_verify.json.migrated"))
 
