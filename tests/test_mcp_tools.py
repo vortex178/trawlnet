@@ -14,6 +14,7 @@ import common
 import db
 import homes
 import mcp_server as srv
+import mcp_content  # noqa: F401  (registers the prompts get_instructions serves)
 import mcp_tools  # noqa: F401  (registers the tools)
 import urlguard
 import yaml
@@ -518,6 +519,29 @@ class SaveProfile(unittest.TestCase):
         self.dir.symlink_to(outside, target_is_directory=True)
         self.assertIn("symlink", self.save())
         self.assertEqual(list(outside.iterdir()), [])
+
+
+class GetInstructions(unittest.TestCase):
+    def test_serves_prompts_and_rubrics_as_text(self):
+        text = call("get_instructions", task="build_profile", role="backend engineer")["text"]
+        self.assertIn("for the role: backend engineer", text)
+        self.assertIn("save_profile", text)
+        self.assertIn("get_job", call("get_instructions", task="tailor_for_job", key="abc")["text"])
+        self.assertIn("since=", call("get_instructions", task="weekly_review", days="14")["text"])
+        self.assertIn("Calibration", call("get_instructions", task="scoring_rubric")["text"])
+        self.assertIn("Never create new experience", call("get_instructions", task="tailoring_rules")["text"])
+
+    def test_every_prompt_is_served(self):
+        self.assertEqual(set(mcp_tools.WORKFLOWS), set(srv.PROMPTS))
+        spec = srv.TOOLS["get_instructions"][0]["inputSchema"]["properties"]["task"]["enum"]
+        self.assertEqual(set(spec), {*srv.PROMPTS, *mcp_tools.DOCS})
+        self.assertIn("since=", call("get_instructions", task="weekly_review", days=14, extra="x")["text"])
+
+    def test_bad_task_or_arguments_are_tool_errors(self):
+        self.assertIn("unknown task", call("get_instructions", task="x"))
+        self.assertIn("must be a string", call("get_instructions", task=5))
+        self.assertIn("key is required", call("get_instructions", task="tailor_for_job"))
+        self.assertIn("days must be", call("get_instructions", task="weekly_review", days="soon"))
 
 
 if __name__ == "__main__":
